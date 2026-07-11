@@ -52,3 +52,137 @@ export const TREND_LABELS: Record<NonNullable<TrendArrow>, string> = {
   falling: "↓ Bajando",
   falling_fast: "↓↓ Bajando rápido",
 };
+
+export type MedicationType =
+  | "insulin_basal"
+  | "insulin_bolus"
+  | "sensitizer"
+  | "supplement"
+  | "other";
+
+export const MEDICATION_TYPE_LABELS: Record<MedicationType, string> = {
+  insulin_basal: "Insulina basal (lenta)",
+  insulin_bolus: "Insulina bolo (rápida)",
+  sensitizer: "Sensibilizador (ej. metformina)",
+  supplement: "Suplemento",
+  other: "Otro",
+};
+
+export interface Medication {
+  id: number;
+  name: string;
+  type: MedicationType;
+  doseAmount: number | null;
+  doseUnit: string | null;
+  scheduleTimes: string[];
+  notes: string | null;
+  active: boolean;
+  notificationIds: string[];
+  createdAtMs: number;
+}
+
+export interface NewMedication {
+  name: string;
+  type: MedicationType;
+  doseAmount: number | null;
+  doseUnit: string | null;
+  scheduleTimes: string[];
+  notes: string | null;
+}
+
+export interface MedicationLog {
+  id: number;
+  medicationId: number;
+  takenAtMs: number;
+  doseAmount: number | null;
+  notes: string | null;
+  createdAtMs: number;
+}
+
+export interface NewMedicationLog {
+  medicationId: number;
+  takenAtMs: number;
+  doseAmount: number | null;
+  notes: string | null;
+}
+
+export interface MealItem {
+  name: string;
+  portionEstimate: string | null;
+  calories: number | null;
+  carbsG: number | null;
+  sugarG: number | null;
+  proteinG: number | null;
+  fatG: number | null;
+}
+
+export type MealSource = "photo" | "manual";
+
+export interface Meal {
+  id: number;
+  timestampMs: number;
+  description: string | null;
+  calories: number | null;
+  carbsG: number | null;
+  sugarG: number | null;
+  proteinG: number | null;
+  fatG: number | null;
+  portionEstimate: string | null;
+  items: MealItem[];
+  source: MealSource;
+  aiNotes: string | null;
+  createdAtMs: number;
+}
+
+export interface NewMeal {
+  timestampMs: number;
+  description: string | null;
+  calories: number | null;
+  carbsG: number | null;
+  sugarG: number | null;
+  proteinG: number | null;
+  fatG: number | null;
+  portionEstimate: string | null;
+  items: MealItem[];
+  source: MealSource;
+  aiNotes: string | null;
+}
+
+export interface MealTotals {
+  count: number;
+  calories: number;
+  carbsG: number;
+  sugarG: number;
+  proteinG: number;
+  fatG: number;
+}
+
+export type KnowledgeTopic =
+  | "cgm_targets"
+  | "dawn_phenomenon"
+  | "exercise"
+  | "sleep"
+  | "stress"
+  | "carb_counting"
+  | "hypoglycemia";
+
+export interface KnowledgeCorpusEntry {
+  id: string;
+  title: string;
+  authors: string;
+  year: number;
+  source: string;
+  url: string | null;
+  topic: KnowledgeTopic;
+  summary: string;
+}
+
+export interface KnowledgeChunk extends KnowledgeCorpusEntry {
+  rowId: number;
+  embedding: number[];
+  createdAtMs: number;
+}
+
+export interface KnowledgeSearchResult extends KnowledgeChunk {
+  score: number;
+}

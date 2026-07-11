@@ -8,7 +8,6 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
 import { insertReading } from "../db/database";
 import type { TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
@@ -21,8 +20,7 @@ const TREND_OPTIONS: { key: TrendArrow; label: string }[] = [
   { key: "falling_fast", label: TREND_LABELS.falling_fast },
 ];
 
-export default function AddReadingScreen() {
-  const navigation = useNavigation();
+export default function AddReadingScreen({ onSaved }: { onSaved?: () => void }) {
   const [value, setValue] = useState("");
   const [trend, setTrend] = useState<TrendArrow>(null);
   const [notes, setNotes] = useState("");
@@ -48,7 +46,7 @@ export default function AddReadingScreen() {
       setTrend(null);
       setNotes("");
       Alert.alert("Guardado", "La lectura se registró correctamente.");
-      navigation.goBack();
+      onSaved?.();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo guardar la lectura.");
     } finally {

@@ -23,7 +23,20 @@
     },
     "plugins": [
       "expo-sqlite",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permite el acceso a la cámara para tomar fotos de tus comidas y analizarlas."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite el acceso a tus fotos para importar capturas de LibreLink y fotos de comida."
+        }
+      ]
     ]
   }
 }

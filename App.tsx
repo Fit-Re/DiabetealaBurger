@@ -5,8 +5,9 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
-import AddReadingScreen from "./src/screens/AddReadingScreen";
-import ImportScreenshotScreen from "./src/screens/ImportScreenshotScreen";
+import GlucoseScreen from "./src/screens/GlucoseScreen";
+import MedicationsScreen from "./src/screens/MedicationsScreen";
+import MealsScreen from "./src/screens/MealsScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import { initDatabase } from "./src/db/database";
 
@@ -48,14 +49,19 @@ export default function App() {
             options={{ title: "GlucoTrack" }}
           />
           <Tab.Screen
-            name="Agregar"
-            component={AddReadingScreen}
-            options={{ title: "Registrar manual" }}
+            name="Glucosa"
+            component={GlucoseScreen}
+            options={{ title: "Registrar glucosa" }}
           />
           <Tab.Screen
-            name="Importar"
-            component={ImportScreenshotScreen}
-            options={{ title: "Importar LibreLink" }}
+            name="Medicamentos"
+            component={MedicationsScreen}
+            options={{ title: "Medicamentos" }}
+          />
+          <Tab.Screen
+            name="Comida"
+            component={MealsScreen}
+            options={{ title: "Comida" }}
           />
           <Tab.Screen
             name="Ajustes"

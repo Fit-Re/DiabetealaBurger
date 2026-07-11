@@ -10,7 +10,6 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { insertReading } from "../db/database";
 import { parseLibreLinkScreenshot } from "../lib/anthropic";
@@ -18,8 +17,11 @@ import type { ParsedLibreLinkReading } from "../lib/anthropic";
 import type { GlucoseUnit, TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
 
-export default function ImportScreenshotScreen() {
-  const navigation = useNavigation();
+export default function ImportScreenshotScreen({
+  onSaved,
+}: {
+  onSaved?: () => void;
+}) {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -81,7 +83,7 @@ export default function ImportScreenshotScreen() {
       setImageUri(null);
       setBase64(null);
       setParsed(null);
-      navigation.goBack();
+      onSaved?.();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo guardar la lectura.");
     } finally {

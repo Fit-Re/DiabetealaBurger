@@ -1,5 +1,5 @@
 import * as SecureStore from "expo-secure-store";
-import type { GlucoseUnit, TrendArrow } from "../types";
+import type { GlucoseUnit, MealItem, TrendArrow } from "../types";
 
 const API_KEY_STORAGE_KEY = "anthropic_api_key";
 const MODEL = "claude-sonnet-5";
@@ -14,6 +14,77 @@ export async function setApiKey(key: string): Promise<void> {
 
 export async function clearApiKey(): Promise<void> {
   await SecureStore.deleteItemAsync(API_KEY_STORAGE_KEY);
+}
+
+async function callClaudeVision(
+  base64Image: string,
+  mediaType: string,
+  promptText: string,
+  maxTokens: number
+): Promise<string> {
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "No hay una API key de Anthropic configurada. Agrégala en Ajustes."
+    );
+  }
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: base64Image,
+              },
+            },
+            {
+              type: "text",
+              text: promptText,
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Error de Anthropic API (${response.status}): ${errorText}`);
+  }
+
+  const json = await response.json();
+  const textBlock = json.content?.find((c: any) => c.type === "text");
+  if (!textBlock?.text) {
+    throw new Error("La respuesta de la API no contiene texto.");
+  }
+  return textBlock.text as string;
+}
+
+function extractJson(text: string): any {
+  const cleaned = text
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "");
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    throw new Error("No se pudo interpretar la respuesta de la IA como JSON.");
+  }
 }
 
 export interface ParsedLibreLinkReading {
@@ -68,67 +139,8 @@ export async function parseLibreLinkScreenshot(
   base64Image: string,
   mediaType: string = "image/jpeg"
 ): Promise<ParsedLibreLinkReading> {
-  const apiKey = await getApiKey();
-  if (!apiKey) {
-    throw new Error(
-      "No hay una API key de Anthropic configurada. Agrégala en Ajustes."
-    );
-  }
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 512,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mediaType,
-                data: base64Image,
-              },
-            },
-            {
-              type: "text",
-              text: EXTRACTION_PROMPT,
-            },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Error de Anthropic API (${response.status}): ${errorText}`);
-  }
-
-  const json = await response.json();
-  const textBlock = json.content?.find((c: any) => c.type === "text");
-  if (!textBlock?.text) {
-    throw new Error("La respuesta de la API no contiene texto.");
-  }
-
-  let parsed: any;
-  try {
-    const cleaned = textBlock.text
-      .trim()
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/```\s*$/i, "");
-    parsed = JSON.parse(cleaned);
-  } catch {
-    throw new Error("No se pudo interpretar la respuesta de la IA como JSON.");
-  }
+  const text = await callClaudeVision(base64Image, mediaType, EXTRACTION_PROMPT, 512);
+  const parsed = extractJson(text);
 
   if (typeof parsed.value !== "number") {
     throw new Error("La IA no pudo identificar un valor de glucosa en la imagen.");
@@ -141,5 +153,111 @@ export async function parseLibreLinkScreenshot(
     timestampMs: combineTimeWithToday(parsed.time ?? null),
     confidence: parsed.confidence ?? "medium",
     rawNote: parsed.rawNote ?? null,
+  };
+}
+
+export interface ClarificationAnswer {
+  question: string;
+  answer: string;
+}
+
+export interface ParsedMeal {
+  items: MealItem[];
+  calories: number | null;
+  carbsG: number | null;
+  sugarG: number | null;
+  proteinG: number | null;
+  fatG: number | null;
+  portionEstimate: string | null;
+  confidence: "high" | "medium" | "low";
+  clarifyingQuestions: string[];
+  aiNotes: string | null;
+}
+
+function buildMealPrompt(
+  additionalContext: string | null,
+  clarifications: ClarificationAnswer[]
+): string {
+  let context = "";
+  if (additionalContext) {
+    context += `\nContexto adicional proporcionado por el usuario: "${additionalContext}"`;
+  }
+  if (clarifications.length > 0) {
+    context += "\nAclaraciones adicionales del usuario:\n";
+    context += clarifications
+      .map((c) => `- ${c.question} → ${c.answer}`)
+      .join("\n");
+  }
+
+  return `Eres un nutriólogo asistente para un paciente con diabetes tipo 1. Analiza la imagen de comida o bebida y devuelve ÚNICAMENTE un objeto JSON (sin texto adicional, sin markdown) con esta forma exacta:
+
+{
+  "items": [
+    {
+      "name": "<nombre del alimento/bebida>",
+      "portionEstimate": "<estimación de la porción, ej. '1 taza (150g)'>",
+      "calories": <número o null>,
+      "carbsG": <número o null>,
+      "sugarG": <número o null>,
+      "proteinG": <número o null>,
+      "fatG": <número o null>
+    }
+  ],
+  "calories": <número total, suma de items>,
+  "carbsG": <número total>,
+  "sugarG": <número total>,
+  "proteinG": <número total>,
+  "fatG": <número total>,
+  "portionEstimate": "<resumen breve de la porción total>",
+  "confidence": "high" | "medium" | "low",
+  "clarifyingQuestions": ["<pregunta corta que ayudaría a refinar la estimación>", ...],
+  "aiNotes": "<observaciones relevantes para una persona con diabetes tipo 1, ej. alto índice glucémico, o null>"
+}
+
+Reglas:
+- Identifica cada alimento o bebida visible por separado en "items".
+- Estima porciones y macros usando tu conocimiento nutricional general; sé razonable y explícito sobre supuestos en "aiNotes".
+- Presta especial atención a los carbohidratos y azúcares totales, ya que son críticos para el cálculo de insulina del paciente.
+- Si hay ambigüedad real (tipo de pan, tamaño de porción, ingredientes ocultos como aceite o azúcar añadida), agrega hasta 3 preguntas cortas y concretas en "clarifyingQuestions". Si no hay ambigüedad relevante, deja la lista vacía.
+- Si ya tienes contexto adicional o aclaraciones del usuario (abajo), incorpóralas en tu estimación final y dejarlas resueltas: no repitas la misma pregunta.
+- No inventes datos que contradigan la imagen. Responde solo con el JSON.
+${context}`;
+}
+
+export async function parseMealPhoto(
+  base64Image: string,
+  mediaType: string = "image/jpeg",
+  additionalContext: string | null = null,
+  clarifications: ClarificationAnswer[] = []
+): Promise<ParsedMeal> {
+  const prompt = buildMealPrompt(additionalContext, clarifications);
+  const text = await callClaudeVision(base64Image, mediaType, prompt, 1024);
+  const parsed = extractJson(text);
+
+  if (!Array.isArray(parsed.items)) {
+    throw new Error("La IA no pudo identificar alimentos en la imagen.");
+  }
+
+  return {
+    items: parsed.items.map((item: any) => ({
+      name: String(item.name ?? "Alimento"),
+      portionEstimate: item.portionEstimate ?? null,
+      calories: typeof item.calories === "number" ? item.calories : null,
+      carbsG: typeof item.carbsG === "number" ? item.carbsG : null,
+      sugarG: typeof item.sugarG === "number" ? item.sugarG : null,
+      proteinG: typeof item.proteinG === "number" ? item.proteinG : null,
+      fatG: typeof item.fatG === "number" ? item.fatG : null,
+    })),
+    calories: typeof parsed.calories === "number" ? parsed.calories : null,
+    carbsG: typeof parsed.carbsG === "number" ? parsed.carbsG : null,
+    sugarG: typeof parsed.sugarG === "number" ? parsed.sugarG : null,
+    proteinG: typeof parsed.proteinG === "number" ? parsed.proteinG : null,
+    fatG: typeof parsed.fatG === "number" ? parsed.fatG : null,
+    portionEstimate: parsed.portionEstimate ?? null,
+    confidence: parsed.confidence ?? "medium",
+    clarifyingQuestions: Array.isArray(parsed.clarifyingQuestions)
+      ? parsed.clarifyingQuestions.filter((q: unknown) => typeof q === "string")
+      : [],
+    aiNotes: parsed.aiNotes ?? null,
   };
 }
