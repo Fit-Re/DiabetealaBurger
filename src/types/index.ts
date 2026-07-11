@@ -164,7 +164,8 @@ export type KnowledgeTopic =
   | "sleep"
   | "stress"
   | "carb_counting"
-  | "hypoglycemia";
+  | "hypoglycemia"
+  | "general";
 
 export interface KnowledgeCorpusEntry {
   id: string;
@@ -180,6 +181,7 @@ export interface KnowledgeCorpusEntry {
 export interface KnowledgeChunk extends KnowledgeCorpusEntry {
   rowId: number;
   embedding: number[];
+  curated: boolean;
   createdAtMs: number;
 }
 

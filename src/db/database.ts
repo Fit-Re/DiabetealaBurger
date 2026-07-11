@@ -94,6 +94,7 @@ export async function initDatabase(): Promise<void> {
       topic TEXT NOT NULL,
       text TEXT NOT NULL,
       embedding TEXT NOT NULL,
+      curated INTEGER NOT NULL DEFAULT 1,
       createdAtMs INTEGER NOT NULL
     );
   `);
@@ -388,6 +389,7 @@ interface KnowledgeChunkRow {
   topic: string;
   text: string;
   embedding: string;
+  curated: number;
   createdAtMs: number;
 }
 
@@ -403,6 +405,7 @@ function mapKnowledgeChunkRow(row: KnowledgeChunkRow): KnowledgeChunk {
     topic: row.topic as KnowledgeChunk["topic"],
     summary: row.text,
     embedding: JSON.parse(row.embedding),
+    curated: row.curated === 1,
     createdAtMs: row.createdAtMs,
   };
 }
@@ -417,12 +420,13 @@ export async function getKnowledgeChunkSlugs(): Promise<Set<string>> {
 
 export async function insertKnowledgeChunk(
   entry: KnowledgeCorpusEntry,
-  embedding: number[]
+  embedding: number[],
+  curated: boolean = true
 ): Promise<void> {
   const db = await getDb();
   await db.runAsync(
-    `INSERT OR IGNORE INTO knowledge_chunks (slug, title, authors, year, source, url, topic, text, embedding, createdAtMs)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO knowledge_chunks (slug, title, authors, year, source, url, topic, text, embedding, curated, createdAtMs)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       entry.id,
       entry.title,
@@ -433,6 +437,7 @@ export async function insertKnowledgeChunk(
       entry.topic,
       entry.summary,
       JSON.stringify(embedding),
+      curated ? 1 : 0,
       Date.now(),
     ]
   );

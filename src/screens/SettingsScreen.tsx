@@ -8,7 +8,13 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { clearApiKey, getApiKey, setApiKey } from "../lib/anthropic";
+import {
+  clearApiKey,
+  getApiKey,
+  setApiKey,
+  synthesizeEvidence,
+} from "../lib/anthropic";
+import type { EvidenceSynthesis } from "../lib/anthropic";
 import {
   clearVoyageApiKey,
   getVoyageApiKey,
@@ -18,8 +24,10 @@ import {
   getCorpusSize,
   getIngestedCount,
   ingestCorpus,
+  searchKnowledge,
 } from "../lib/knowledgeBase";
 import type { IngestProgress } from "../lib/knowledgeBase";
+import type { KnowledgeSearchResult } from "../types";
 
 interface ApiKeySectionProps {
   title: string;
@@ -175,6 +183,127 @@ function KnowledgeBaseSection() {
   );
 }
 
+const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], string> = {
+  strong: "Sólida",
+  moderate: "Moderada",
+  limited: "Limitada",
+};
+
+function KnowledgeSearchTestSection() {
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<KnowledgeSearchResult[] | null>(null);
+  const [synthesizing, setSynthesizing] = useState(false);
+  const [synthesis, setSynthesis] = useState<EvidenceSynthesis | null>(null);
+
+  const onSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    setResults(null);
+    setSynthesis(null);
+    try {
+      const found = await searchKnowledge(query.trim(), { topK: 5 });
+      setResults(found);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo buscar en la base de conocimiento.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const onSynthesize = async () => {
+    if (!results || results.length === 0) return;
+    setSynthesizing(true);
+    setSynthesis(null);
+    try {
+      const result = await synthesizeEvidence(query.trim(), results);
+      setSynthesis(result);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo generar el resumen de evidencia.");
+    } finally {
+      setSynthesizing(false);
+    }
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Probar búsqueda (corpus + PubMed en vivo)</Text>
+      <Text style={styles.description}>
+        Escribe un patrón o pregunta (ej. "glucosa alta después de hacer ejercicio en la
+        noche") para ver qué evidencia encuentra la app. Si el corpus local no tiene un
+        buen match, buscará en vivo en PubMed automáticamente.
+      </Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej. hipoglucemia nocturna después de ejercicio"
+        value={query}
+        onChangeText={setQuery}
+      />
+      <Pressable
+        style={[styles.saveButton, searching && styles.disabled]}
+        onPress={onSearch}
+        disabled={searching}
+      >
+        <Text style={styles.saveButtonText}>
+          {searching ? "Buscando..." : "Buscar"}
+        </Text>
+      </Pressable>
+
+      {results && results.length === 0 && (
+        <Text style={styles.description}>Sin resultados.</Text>
+      )}
+      {results?.map((r) => (
+        <View key={`${r.id}-${r.rowId}`} style={styles.resultCard}>
+          <Text style={styles.resultTitle}>
+            {r.title} {r.curated ? "" : "· 🔴 no revisado (PubMed en vivo)"}
+          </Text>
+          <Text style={styles.resultMeta}>
+            {r.authors} ({r.year || "s/f"}) · {r.source} · similitud{" "}
+            {r.score.toFixed(2)}
+          </Text>
+          <Text style={styles.resultSummary}>{r.summary}</Text>
+        </View>
+      ))}
+
+      {results && results.length > 0 && (
+        <Pressable
+          style={[styles.synthesizeButton, synthesizing && styles.disabled]}
+          onPress={onSynthesize}
+          disabled={synthesizing}
+        >
+          <Text style={styles.saveButtonText}>
+            {synthesizing ? "Revisando evidencia..." : "Generar resumen clínico"}
+          </Text>
+        </Pressable>
+      )}
+
+      {synthesis && (
+        <View style={styles.synthesisBox}>
+          <Text style={styles.synthesisStrength}>
+            Solidez de la evidencia: {EVIDENCE_STRENGTH_LABELS[synthesis.evidenceStrength]}
+          </Text>
+
+          <Text style={styles.synthesisSectionTitle}>Etiología</Text>
+          <Text style={styles.synthesisText}>{synthesis.etiology}</Text>
+
+          <Text style={styles.synthesisSectionTitle}>Manejo (temas para tu médico)</Text>
+          <Text style={styles.synthesisText}>{synthesis.management}</Text>
+
+          <Text style={styles.synthesisSectionTitle}>Resultado probable</Text>
+          <Text style={styles.synthesisText}>{synthesis.likelyOutcome}</Text>
+
+          {synthesis.caveats && (
+            <>
+              <Text style={styles.synthesisSectionTitle}>Advertencias</Text>
+              <Text style={styles.synthesisCaveats}>{synthesis.caveats}</Text>
+            </>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   return (
     <ScrollView style={styles.container}>
@@ -201,6 +330,8 @@ export default function SettingsScreen() {
       />
 
       <KnowledgeBaseSection />
+
+      <KnowledgeSearchTestSection />
 
       <Text style={styles.disclaimer}>
         Esta app es una herramienta de registro y apoyo personal para el manejo de
@@ -243,6 +374,50 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.6 },
   clearButton: { alignItems: "center", padding: 12, marginTop: 8 },
   clearButtonText: { color: "#dc2626", fontSize: 14, fontWeight: "600" },
+  resultCard: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  resultTitle: { fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 4 },
+  resultMeta: { fontSize: 11, color: "#6b7280", marginBottom: 6 },
+  resultSummary: { fontSize: 12, color: "#374151", lineHeight: 17 },
+  synthesizeButton: {
+    backgroundColor: "#111827",
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+    marginTop: 14,
+  },
+  synthesisBox: {
+    backgroundColor: "#eef2ff",
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 14,
+  },
+  synthesisStrength: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#4338ca",
+    marginBottom: 8,
+  },
+  synthesisSectionTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#111827",
+    marginTop: 8,
+  },
+  synthesisText: { fontSize: 13, color: "#374151", lineHeight: 18, marginTop: 2 },
+  synthesisCaveats: {
+    fontSize: 12,
+    color: "#92400e",
+    lineHeight: 17,
+    marginTop: 2,
+    fontStyle: "italic",
+  },
   disclaimer: {
     fontSize: 11,
     color: "#9ca3af",

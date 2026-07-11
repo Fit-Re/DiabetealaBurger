@@ -1,5 +1,10 @@
 import * as SecureStore from "expo-secure-store";
-import type { GlucoseUnit, MealItem, TrendArrow } from "../types";
+import type {
+  GlucoseUnit,
+  KnowledgeSearchResult,
+  MealItem,
+  TrendArrow,
+} from "../types";
 
 const API_KEY_STORAGE_KEY = "anthropic_api_key";
 const MODEL = "claude-sonnet-5";
@@ -58,6 +63,44 @@ async function callClaudeVision(
           ],
         },
       ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Error de Anthropic API (${response.status}): ${errorText}`);
+  }
+
+  const json = await response.json();
+  const textBlock = json.content?.find((c: any) => c.type === "text");
+  if (!textBlock?.text) {
+    throw new Error("La respuesta de la API no contiene texto.");
+  }
+  return textBlock.text as string;
+}
+
+async function callClaudeText(
+  promptText: string,
+  maxTokens: number
+): Promise<string> {
+  const apiKey = await getApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "No hay una API key de Anthropic configurada. Agrégala en Ajustes."
+    );
+  }
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      messages: [{ role: "user", content: promptText }],
     }),
   });
 
@@ -259,5 +302,69 @@ export async function parseMealPhoto(
       ? parsed.clarifyingQuestions.filter((q: unknown) => typeof q === "string")
       : [],
     aiNotes: parsed.aiNotes ?? null,
+  };
+}
+
+export interface EvidenceSynthesis {
+  etiology: string;
+  management: string;
+  likelyOutcome: string;
+  evidenceStrength: "strong" | "moderate" | "limited";
+  caveats: string | null;
+}
+
+function buildEvidenceSynthesisPrompt(
+  query: string,
+  chunks: KnowledgeSearchResult[]
+): string {
+  const sourcesBlock = chunks
+    .map((c, i) => {
+      const tag = c.curated ? "[curado]" : "[PubMed en vivo, NO revisado manualmente]";
+      return `${i + 1}. ${tag} "${c.title}" — ${c.authors} (${c.year || "s/f"}), ${c.source}.\nResumen: ${c.summary}`;
+    })
+    .join("\n\n");
+
+  return `Eres un asistente clínico que ayuda a un paciente con diabetes tipo 1 a entender un patrón que observó en sus propios registros (glucosa, comida, medicamentos, estilo de vida). Tienes disponibles los siguientes fragmentos de evidencia recuperados para su consulta. Algunos son de un corpus curado manualmente (guías ADA/ISPAD/ATTD y papers seleccionados); otros vienen de una búsqueda en vivo en PubMed y NO han sido revisados por un humano — trátalos con más cautela.
+
+Patrón/consulta del paciente: "${query}"
+
+Fragmentos de evidencia disponibles:
+${sourcesBlock}
+
+Devuelve ÚNICAMENTE un objeto JSON (sin texto adicional, sin markdown) con esta forma exacta:
+
+{
+  "etiology": "<explicación breve de posibles causas fisiológicas del patrón, basada SOLO en los fragmentos dados, citando autor/año entre paréntesis>",
+  "management": "<puntos de manejo/estilo de vida a considerar y discutir con su equipo médico, basados en los fragmentos, citando autor/año>",
+  "likelyOutcome": "<qué sugiere la evidencia sobre el resultado probable si el patrón continúa o si se aplican los ajustes discutidos, citando autor/año>",
+  "evidenceStrength": "strong" | "moderate" | "limited",
+  "caveats": "<advertencias sobre limitaciones de la evidencia, ej. estudios pequeños, fuentes no revisadas, o null si no aplica>"
+}
+
+Reglas estrictas:
+- Basa cada afirmación SOLO en los fragmentos proporcionados. No inventes estudios ni cifras que no estén ahí.
+- Si un fragmento es de PubMed en vivo (no revisado), dilo explícitamente al citarlo y refleja esa incertidumbre en "evidenceStrength" y "caveats".
+- NUNCA prescribas una dosis exacta de insulina o medicamento. Enmarca "management" como temas y preguntas concretas para llevar al médico, no como instrucciones de tratamiento.
+- Si la evidencia disponible es insuficiente para responder con confianza, dilo claramente en "caveats" en vez de rellenar con suposiciones.
+- Responde en español, de forma clara y directa, sin jerga innecesaria.`;
+}
+
+export async function synthesizeEvidence(
+  query: string,
+  chunks: KnowledgeSearchResult[]
+): Promise<EvidenceSynthesis> {
+  if (chunks.length === 0) {
+    throw new Error("No hay fragmentos de evidencia para sintetizar.");
+  }
+  const prompt = buildEvidenceSynthesisPrompt(query, chunks);
+  const text = await callClaudeText(prompt, 1024);
+  const parsed = extractJson(text);
+
+  return {
+    etiology: String(parsed.etiology ?? ""),
+    management: String(parsed.management ?? ""),
+    likelyOutcome: String(parsed.likelyOutcome ?? ""),
+    evidenceStrength: parsed.evidenceStrength ?? "limited",
+    caveats: parsed.caveats ?? null,
   };
 }
