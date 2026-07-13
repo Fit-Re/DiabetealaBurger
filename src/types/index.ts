@@ -188,3 +188,14 @@ export interface KnowledgeChunk extends KnowledgeCorpusEntry {
 export interface KnowledgeSearchResult extends KnowledgeChunk {
   score: number;
 }
+
+export type PatternSeverity = "info" | "watch" | "attention";
+
+export interface PatternFinding {
+  id: string;
+  title: string;
+  description: string;
+  severity: PatternSeverity;
+  suggestedQuery: string;
+  evidenceCount: number;
+}

@@ -310,8 +310,8 @@ export default function SettingsScreen() {
       <Text style={styles.title}>Ajustes</Text>
 
       <ApiKeySection
-        title="API key de Anthropic (Claude)"
-        description="Se usa para analizar tus capturas de LibreLink y fotos de comida (visión). Se guarda cifrada en este dispositivo y nunca se comparte."
+        title="API key de Anthropic (Claude) — opcional"
+        description="Solo se usa para el autocompletado por IA de capturas de LibreLink, análisis de fotos de comida, y los resúmenes clínicos de evidencia. Todo lo demás de la app funciona sin esta key. Requiere crédito en tu cuenta de Anthropic. Se guarda cifrada en este dispositivo y nunca se comparte."
         placeholder="sk-ant-..."
         expectedPrefix="sk-ant-"
         getKey={getApiKey}

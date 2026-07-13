@@ -151,6 +151,16 @@ export default function MealsScreen() {
   };
 
   const save = async () => {
+    const hasAnyValue = [calories, carbsG, sugarG, proteinG, fatG].some(
+      (v) => v.trim().length > 0
+    );
+    if (!hasAnyValue && !context.trim()) {
+      Alert.alert(
+        "Faltan datos",
+        "Escribe al menos las calorías o los carbohidratos, o una descripción de la comida."
+      );
+      return;
+    }
     setSaving(true);
     try {
       await insertMeal({
@@ -163,7 +173,7 @@ export default function MealsScreen() {
         fatG: fatG ? Number(fatG.replace(",", ".")) : null,
         portionEstimate: parsed?.portionEstimate ?? null,
         items: parsed?.items ?? [],
-        source: "photo",
+        source: parsed ? "photo" : "manual",
         aiNotes: parsed?.aiNotes ?? null,
       });
       resetForm();
@@ -234,46 +244,52 @@ export default function MealsScreen() {
 
       {showAddForm && (
         <View style={styles.formBox}>
+          <Text style={styles.formHint}>
+            Escribe tú mismo las calorías/carbohidratos (gratis, sin IA), o toma/elige una
+            foto y usa el análisis automático si tienes crédito de Anthropic configurado.
+          </Text>
+
           <View style={styles.row}>
             <Pressable style={styles.pickButton} onPress={takePhoto}>
-              <Text style={styles.pickButtonText}>Tomar foto</Text>
+              <Text style={styles.pickButtonText}>Tomar foto (opcional)</Text>
             </Pressable>
             <Pressable style={styles.pickButton} onPress={pickFromGallery}>
-              <Text style={styles.pickButtonText}>Elegir de galería</Text>
+              <Text style={styles.pickButtonText}>Elegir de galería (opcional)</Text>
             </Pressable>
           </View>
 
           {imageUri && (
-            <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="cover" />
+            <>
+              <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="cover" />
+              <Pressable
+                style={[styles.analyzeButton, analyzing && styles.disabled]}
+                onPress={analyze}
+                disabled={analyzing}
+              >
+                {analyzing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.analyzeButtonText}>
+                    Analizar con IA (opcional, usa crédito)
+                  </Text>
+                )}
+              </Pressable>
+            </>
           )}
 
-          <Text style={styles.label}>Contexto adicional (opcional)</Text>
+          <Text style={styles.label}>Descripción (opcional)</Text>
           <TextInput
             style={[styles.input, styles.notesInput]}
-            placeholder="Ej. el pan es integral, la porción es un tazón mediano..."
+            placeholder="Ej. 2 tacos de pollo con arroz y una manzana"
             value={context}
             onChangeText={setContext}
             multiline
           />
 
-          {imageUri && !parsed && (
-            <Pressable
-              style={[styles.analyzeButton, analyzing && styles.disabled]}
-              onPress={analyze}
-              disabled={analyzing}
-            >
-              {analyzing ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.analyzeButtonText}>Analizar con IA</Text>
-              )}
-            </Pressable>
-          )}
-
           {parsed && (
             <View style={styles.resultBox}>
               <Text style={styles.resultTitle}>
-                Alimentos identificados (confianza: {parsed.confidence})
+                Alimentos identificados por IA (confianza: {parsed.confidence})
               </Text>
               {parsed.items.map((item, idx) => (
                 <Text key={idx} style={styles.itemLine}>
@@ -309,47 +325,52 @@ export default function MealsScreen() {
                 </View>
               )}
 
-              <Text style={styles.label}>Calorías totales</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="decimal-pad"
-                value={calories}
-                onChangeText={setCalories}
-              />
-              <Text style={styles.label}>Carbohidratos (g)</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="decimal-pad"
-                value={carbsG}
-                onChangeText={setCarbsG}
-              />
-              <Text style={styles.label}>Azúcar (g)</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="decimal-pad"
-                value={sugarG}
-                onChangeText={setSugarG}
-              />
-              <Text style={styles.label}>Proteína (g)</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="decimal-pad"
-                value={proteinG}
-                onChangeText={setProteinG}
-              />
-              <Text style={styles.label}>Grasa (g)</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="decimal-pad"
-                value={fatG}
-                onChangeText={setFatG}
-              />
-
               {parsed.aiNotes && (
                 <Text style={styles.note}>Nota de la IA: {parsed.aiNotes}</Text>
               )}
             </View>
           )}
+
+          <Text style={styles.label}>Calorías totales</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="Ej. 450"
+            value={calories}
+            onChangeText={setCalories}
+          />
+          <Text style={styles.label}>Carbohidratos (g)</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="Ej. 55"
+            value={carbsG}
+            onChangeText={setCarbsG}
+          />
+          <Text style={styles.label}>Azúcar (g)</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="Ej. 8"
+            value={sugarG}
+            onChangeText={setSugarG}
+          />
+          <Text style={styles.label}>Proteína (g)</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="Ej. 20"
+            value={proteinG}
+            onChangeText={setProteinG}
+          />
+          <Text style={styles.label}>Grasa (g)</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="Ej. 15"
+            value={fatG}
+            onChangeText={setFatG}
+          />
 
           <View style={styles.formActions}>
             <Pressable
@@ -362,9 +383,9 @@ export default function MealsScreen() {
               <Text style={styles.cancelButtonText}>Cancelar</Text>
             </Pressable>
             <Pressable
-              style={[styles.saveButton, (saving || !parsed) && styles.disabled]}
+              style={[styles.saveButton, saving && styles.disabled]}
               onPress={save}
-              disabled={saving || !parsed}
+              disabled={saving}
             >
               <Text style={styles.saveButtonText}>
                 {saving ? "Guardando..." : "Guardar comida"}
@@ -424,6 +445,7 @@ const styles = StyleSheet.create({
   },
   addButtonText: { color: "#2563eb", fontWeight: "700" },
   formBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 16 },
+  formHint: { fontSize: 12, color: "#6b7280", marginBottom: 12, lineHeight: 17 },
   row: { flexDirection: "row", gap: 8 },
   pickButton: {
     flex: 1,

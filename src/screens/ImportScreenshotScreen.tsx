@@ -13,9 +13,43 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { insertReading } from "../db/database";
 import { parseLibreLinkScreenshot } from "../lib/anthropic";
-import type { ParsedLibreLinkReading } from "../lib/anthropic";
-import type { GlucoseUnit, TrendArrow } from "../types";
+import type { TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
+
+const TREND_OPTIONS: { key: TrendArrow; label: string }[] = [
+  { key: "rising_fast", label: TREND_LABELS.rising_fast },
+  { key: "rising", label: TREND_LABELS.rising },
+  { key: "steady", label: TREND_LABELS.steady },
+  { key: "falling", label: TREND_LABELS.falling },
+  { key: "falling_fast", label: TREND_LABELS.falling_fast },
+];
+
+function currentTimeHHMM(): string {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
+function parseTimeToday(time: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return null;
+  const now = new Date();
+  const candidate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    hours,
+    minutes,
+    0,
+    0
+  );
+  if (candidate.getTime() > now.getTime()) {
+    candidate.setDate(candidate.getDate() - 1);
+  }
+  return candidate.getTime();
+}
 
 export default function ImportScreenshotScreen({
   onSaved,
@@ -26,14 +60,17 @@ export default function ImportScreenshotScreen({
   const [base64, setBase64] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [parsed, setParsed] = useState<ParsedLibreLinkReading | null>(null);
-  const [editedValue, setEditedValue] = useState("");
-  const [editedTime, setEditedTime] = useState<Date>(new Date());
+  const [confidence, setConfidence] = useState<string | null>(null);
+
+  const [value, setValue] = useState("");
+  const [trend, setTrend] = useState<TrendArrow>(null);
+  const [timeInput, setTimeInput] = useState(currentTimeHHMM());
+  const [notes, setNotes] = useState("");
 
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permiso requerido", "Necesitamos acceso a tus fotos para importar la captura.");
+      Alert.alert("Permiso requerido", "Necesitamos acceso a tus fotos para ver la captura.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -44,7 +81,6 @@ export default function ImportScreenshotScreen({
     if (!result.canceled && result.assets[0]) {
       setImageUri(result.assets[0].uri);
       setBase64(result.assets[0].base64 ?? null);
-      setParsed(null);
     }
   };
 
@@ -53,36 +89,55 @@ export default function ImportScreenshotScreen({
     setAnalyzing(true);
     try {
       const result = await parseLibreLinkScreenshot(base64);
-      setParsed(result);
-      setEditedValue(String(result.value));
-      setEditedTime(result.timestampMs ? new Date(result.timestampMs) : new Date());
+      setValue(String(result.value));
+      setTrend(result.trend);
+      if (result.timestampMs) {
+        const d = new Date(result.timestampMs);
+        setTimeInput(
+          `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+        );
+      }
+      if (result.rawNote) setNotes(result.rawNote);
+      setConfidence(result.confidence);
     } catch (e: any) {
-      Alert.alert("No se pudo analizar", e?.message ?? "Error desconocido.");
+      Alert.alert(
+        "No se pudo analizar con IA",
+        `${e?.message ?? "Error desconocido."}\n\nPuedes seguir capturando el valor manualmente abajo.`
+      );
     } finally {
       setAnalyzing(false);
     }
   };
 
+  const resetForm = () => {
+    setImageUri(null);
+    setBase64(null);
+    setConfidence(null);
+    setValue("");
+    setTrend(null);
+    setTimeInput(currentTimeHHMM());
+    setNotes("");
+  };
+
   const save = async () => {
-    const numeric = Number(editedValue.replace(",", "."));
-    if (!editedValue || Number.isNaN(numeric) || numeric <= 0) {
-      Alert.alert("Valor inválido", "Revisa el valor de glucosa antes de guardar.");
+    const numeric = Number(value.replace(",", "."));
+    if (!value || Number.isNaN(numeric) || numeric <= 0) {
+      Alert.alert("Valor inválido", "Ingresa el valor de glucosa que ves en la captura.");
       return;
     }
+    const timestampMs = parseTimeToday(timeInput) ?? Date.now();
     setSaving(true);
     try {
       await insertReading({
         value: numeric,
-        unit: (parsed?.unit ?? "mg/dL") as GlucoseUnit,
-        timestampMs: editedTime.getTime(),
+        unit: "mg/dL",
+        timestampMs,
         source: "librelink",
-        trend: (parsed?.trend ?? null) as TrendArrow,
-        notes: parsed?.rawNote ?? null,
+        trend,
+        notes: notes.trim() || null,
       });
       Alert.alert("Guardado", "La lectura se registró correctamente.");
-      setImageUri(null);
-      setBase64(null);
-      setParsed(null);
+      resetForm();
       onSaved?.();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo guardar la lectura.");
@@ -94,86 +149,107 @@ export default function ImportScreenshotScreen({
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Importar captura de LibreLink</Text>
+      <Text style={styles.hint}>
+        Puedes escribir el valor tú mismo viendo la captura (gratis, sin IA), o usar el
+        análisis automático si tienes crédito de Anthropic configurado.
+      </Text>
 
       <Pressable style={styles.pickButton} onPress={pickImage}>
         <Text style={styles.pickButtonText}>
-          {imageUri ? "Cambiar captura" : "Elegir captura de la galería"}
+          {imageUri ? "Cambiar captura" : "Elegir captura de la galería (opcional)"}
         </Text>
       </Pressable>
 
       {imageUri && (
-        <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="contain" />
-      )}
-
-      {imageUri && !parsed && (
-        <Pressable
-          style={[styles.analyzeButton, analyzing && styles.disabled]}
-          onPress={analyze}
-          disabled={analyzing}
-        >
-          {analyzing ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.analyzeButtonText}>Analizar con IA</Text>
-          )}
-        </Pressable>
-      )}
-
-      {parsed && (
-        <View style={styles.resultBox}>
-          <Text style={styles.resultTitle}>
-            Revisa y ajusta antes de guardar (confianza: {parsed.confidence})
-          </Text>
-
-          <Text style={styles.label}>Valor de glucosa</Text>
-          <TextInput
-            style={styles.input}
-            keyboardType="decimal-pad"
-            value={editedValue}
-            onChangeText={setEditedValue}
-          />
-
-          <Text style={styles.label}>Unidad</Text>
-          <Text style={styles.readOnlyValue}>{parsed.unit}</Text>
-
-          <Text style={styles.label}>Tendencia detectada</Text>
-          <Text style={styles.readOnlyValue}>
-            {parsed.trend ? TREND_LABELS[parsed.trend] : "No detectada"}
-          </Text>
-
-          <Text style={styles.label}>Hora detectada</Text>
-          <Text style={styles.readOnlyValue}>
-            {parsed.timestampMs
-              ? editedTime.toLocaleString("es-MX")
-              : "No detectada — se usará la hora actual"}
-          </Text>
-
-          {parsed.rawNote && (
-            <Text style={styles.note}>Nota de la IA: {parsed.rawNote}</Text>
-          )}
-
+        <>
+          <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="contain" />
           <Pressable
-            style={[styles.saveButton, saving && styles.disabled]}
-            onPress={save}
-            disabled={saving}
+            style={[styles.analyzeButton, analyzing && styles.disabled]}
+            onPress={analyze}
+            disabled={analyzing}
           >
-            <Text style={styles.saveButtonText}>
-              {saving ? "Guardando..." : "Guardar lectura"}
-            </Text>
+            {analyzing ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.analyzeButtonText}>
+                Autocompletar con IA (opcional, usa crédito)
+              </Text>
+            )}
           </Pressable>
-        </View>
+        </>
       )}
 
-      <Text style={styles.hint}>
-        Necesitas configurar tu API key de Anthropic en Ajustes para usar el análisis con IA.
-      </Text>
+      <View style={styles.formBox}>
+        {confidence && (
+          <Text style={styles.confidenceText}>
+            Autocompletado por IA (confianza: {confidence}) — revisa antes de guardar.
+          </Text>
+        )}
+
+        <Text style={styles.label}>Valor de glucosa (mg/dL)</Text>
+        <TextInput
+          style={styles.input}
+          keyboardType="decimal-pad"
+          placeholder="Ej. 110"
+          value={value}
+          onChangeText={setValue}
+        />
+
+        <Text style={styles.label}>Tendencia (opcional)</Text>
+        <View style={styles.trendGrid}>
+          {TREND_OPTIONS.map((opt) => (
+            <Pressable
+              key={opt.key}
+              style={[styles.trendChip, trend === opt.key && styles.trendChipSelected]}
+              onPress={() => setTrend(trend === opt.key ? null : opt.key)}
+            >
+              <Text
+                style={[
+                  styles.trendChipText,
+                  trend === opt.key && styles.trendChipTextSelected,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Text style={styles.label}>Hora (HH:MM, 24h)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ej. 08:30"
+          value={timeInput}
+          onChangeText={setTimeInput}
+        />
+
+        <Text style={styles.label}>Notas (opcional)</Text>
+        <TextInput
+          style={[styles.input, styles.notesInput]}
+          placeholder="Ej. antes de comer..."
+          value={notes}
+          onChangeText={setNotes}
+          multiline
+        />
+
+        <Pressable
+          style={[styles.saveButton, saving && styles.disabled]}
+          onPress={save}
+          disabled={saving}
+        >
+          <Text style={styles.saveButtonText}>
+            {saving ? "Guardando..." : "Guardar lectura"}
+          </Text>
+        </Pressable>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f9fafb", padding: 16 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 16, color: "#111827" },
+  title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: "#111827" },
+  hint: { fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 17 },
   pickButton: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -183,25 +259,26 @@ const styles = StyleSheet.create({
     borderColor: "#e5e7eb",
   },
   pickButtonText: { color: "#2563eb", fontWeight: "600", fontSize: 15 },
-  preview: { width: "100%", height: 300, marginTop: 16, borderRadius: 12, backgroundColor: "#000" },
+  preview: { width: "100%", height: 260, marginTop: 16, borderRadius: 12, backgroundColor: "#000" },
   analyzeButton: {
     backgroundColor: "#111827",
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
     alignItems: "center",
     marginTop: 12,
   },
-  analyzeButtonText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+  analyzeButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   disabled: { opacity: 0.6 },
-  resultBox: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
+  formBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginTop: 16 },
+  confidenceText: {
+    fontSize: 12,
+    color: "#4338ca",
+    backgroundColor: "#eef2ff",
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 8,
   },
-  resultTitle: { fontSize: 14, fontWeight: "600", marginBottom: 12, color: "#111827" },
   label: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4, marginTop: 8 },
-  readOnlyValue: { fontSize: 15, color: "#111827" },
   input: {
     backgroundColor: "#f9fafb",
     borderRadius: 8,
@@ -210,7 +287,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e5e7eb",
   },
-  note: { fontSize: 12, color: "#6b7280", marginTop: 8, fontStyle: "italic" },
+  notesInput: { minHeight: 60, textAlignVertical: "top" },
+  trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  trendChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  trendChipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
+  trendChipText: { fontSize: 12, color: "#374151" },
+  trendChipTextSelected: { color: "#fff" },
   saveButton: {
     backgroundColor: "#2563eb",
     borderRadius: 12,
@@ -219,5 +308,4 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   saveButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  hint: { fontSize: 12, color: "#9ca3af", marginTop: 20, marginBottom: 40, textAlign: "center" },
 });
