@@ -28,6 +28,12 @@ import {
 } from "../lib/knowledgeBase";
 import type { IngestProgress } from "../lib/knowledgeBase";
 import type { KnowledgeSearchResult } from "../types";
+import {
+  clearStoredCredentials as clearLibreLinkUpCredentials,
+  getStoredCredentials as getLibreLinkUpCredentials,
+  setStoredCredentials as setLibreLinkUpCredentials,
+  syncLibreLinkUp,
+} from "../lib/librelinkup";
 
 interface ApiKeySectionProps {
   title: string;
@@ -115,6 +121,116 @@ function ApiKeySection({
         <Pressable style={styles.clearButton} onPress={onClear}>
           <Text style={styles.clearButtonText}>Eliminar API key guardada</Text>
         </Pressable>
+      )}
+    </View>
+  );
+}
+
+function LibreLinkUpSection() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [hasStoredCreds, setHasStoredCreds] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    getLibreLinkUpCredentials().then((creds) => setHasStoredCreds(!!creds));
+  }, []);
+
+  const onSaveCredentials = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert("Faltan datos", "Ingresa tu usuario y contraseña de LibreLinkUp.");
+      return;
+    }
+    await setLibreLinkUpCredentials(email, password);
+    setHasStoredCreds(true);
+    setEmail("");
+    setPassword("");
+    Alert.alert("Guardado", "Tus credenciales de LibreLinkUp se guardaron cifradas en este dispositivo.");
+  };
+
+  const onClearCredentials = () => {
+    Alert.alert("Eliminar credenciales", "¿Seguro que quieres eliminarlas?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: async () => {
+          await clearLibreLinkUpCredentials();
+          setHasStoredCreds(false);
+          setLastResult(null);
+        },
+      },
+    ]);
+  };
+
+  const onSync = async () => {
+    setSyncing(true);
+    setLastResult(null);
+    try {
+      const result = await syncLibreLinkUp();
+      setLastResult(
+        `${result.patientName}: ${result.importedCount} lecturas nuevas importadas (de ${result.fetchedCount} recibidas).`
+      );
+    } catch (e: any) {
+      Alert.alert("Error al sincronizar", e?.message ?? "No se pudo sincronizar con LibreLinkUp.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>LibreLinkUp — sincronización automática (opcional)</Text>
+      <Text style={styles.description}>
+        Usa la API no oficial de LibreLinkUp (la misma que apps como Nightscout llevan años
+        usando) para traer tus lecturas automáticamente, sin capturas de pantalla. No es una
+        API soportada por Abbott: podría cambiar o dejar de funcionar sin aviso. Configura tu
+        cuenta de LibreLinkUp como "seguidor" de tu propio sensor antes de usar esto. No usa
+        créditos de Anthropic ni de Voyage.
+      </Text>
+      <Text style={styles.status}>
+        Credenciales: {hasStoredCreds ? "✅ Guardadas" : "⚠️ No configuradas"}
+      </Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Email de LibreLinkUp"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="email-address"
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Contraseña de LibreLinkUp"
+        value={password}
+        onChangeText={setPassword}
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+      />
+      <Pressable style={styles.saveButton} onPress={onSaveCredentials}>
+        <Text style={styles.saveButtonText}>Guardar credenciales</Text>
+      </Pressable>
+
+      {hasStoredCreds && (
+        <>
+          <Pressable
+            style={[styles.synthesizeButton, syncing && styles.disabled]}
+            onPress={onSync}
+            disabled={syncing}
+          >
+            <Text style={styles.saveButtonText}>
+              {syncing ? "Sincronizando..." : "Sincronizar ahora"}
+            </Text>
+          </Pressable>
+          {lastResult && <Text style={styles.status}>{lastResult}</Text>}
+          <Pressable style={styles.clearButton} onPress={onClearCredentials}>
+            <Text style={styles.clearButtonText}>Eliminar credenciales guardadas</Text>
+          </Pressable>
+        </>
       )}
     </View>
   );
@@ -308,6 +424,8 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Ajustes</Text>
+
+      <LibreLinkUpSection />
 
       <ApiKeySection
         title="API key de Anthropic (Claude) — opcional"
