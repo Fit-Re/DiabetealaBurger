@@ -15,7 +15,7 @@ const PASSWORD_KEY = "librelinkup_password";
 const REGION_KEY = "librelinkup_region";
 
 const DEFAULT_HOST = "https://api.libreview.io";
-const LLU_VERSION = "4.12.0";
+const LLU_VERSION = "4.16.0";
 
 export async function getStoredCredentials(): Promise<{
   email: string;
