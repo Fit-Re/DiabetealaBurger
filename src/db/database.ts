@@ -291,6 +291,7 @@ interface MealRow {
   items: MealItem[];
   source: "photo" | "manual";
   ai_notes: string | null;
+  linked_medication_log_id: number | null;
   created_at_ms: number;
 }
 
@@ -308,6 +309,7 @@ function mapMealRow(row: MealRow): Meal {
     items: row.items,
     source: row.source,
     aiNotes: row.ai_notes,
+    linkedMedicationLogId: row.linked_medication_log_id,
     createdAtMs: row.created_at_ms,
   };
 }
@@ -327,6 +329,7 @@ export async function insertMeal(meal: NewMeal): Promise<number> {
       items: meal.items,
       source: meal.source,
       ai_notes: meal.aiNotes,
+      linked_medication_log_id: meal.linkedMedicationLogId,
     })
     .select("id")
     .single();

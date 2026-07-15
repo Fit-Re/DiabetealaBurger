@@ -168,6 +168,7 @@ export interface Meal {
   items: MealItem[];
   source: MealSource;
   aiNotes: string | null;
+  linkedMedicationLogId: number | null;
   createdAtMs: number;
 }
 
@@ -183,6 +184,7 @@ export interface NewMeal {
   items: MealItem[];
   source: MealSource;
   aiNotes: string | null;
+  linkedMedicationLogId: number | null;
 }
 
 export interface MealTotals {

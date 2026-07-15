@@ -21,6 +21,8 @@ const MIN_QUALIFYING_MEALS = 3;
 const HIGH_CARB_THRESHOLD_G = 60;
 const POST_MEAL_WINDOW_MS = 2 * 60 * 60 * 1000;
 const POST_MEAL_HIGH_RATE_THRESHOLD = 0.5;
+// Dosis real < 70% de la esperada (carbsG / ratio) => bolo probablemente insuficiente.
+const INSUFFICIENT_BOLUS_THRESHOLD = 0.7;
 const DAWN_RISE_THRESHOLD_MG_DL = 20;
 const MIN_DAYS_FOR_DAWN_PATTERN = 3;
 const LOW_TIME_THRESHOLD_PCT = 4; // consenso ATTD/Battelino: <4% tiempo bajo rango
@@ -110,7 +112,9 @@ function detectNocturnalHypoglycemia(
 
 function detectPostMealHyperglycemia(
   readings: GlucoseReading[],
-  meals: Meal[]
+  meals: Meal[],
+  medicationLogs: MedicationLog[],
+  insulinCarbRatio: number | null
 ): PatternFinding | null {
   const qualifyingMeals = meals.filter(
     (m) => (m.carbsG ?? 0) >= HIGH_CARB_THRESHOLD_G
@@ -119,6 +123,11 @@ function detectPostMealHyperglycemia(
 
   let highCount = 0;
   let evaluated = 0;
+  // Desglose de causa probable entre las comidas altas que excedieron el rango.
+  let noBolusCount = 0;
+  let insufficientBolusCount = 0;
+  let bolusNoRatioCount = 0;
+  let otherCauseCount = 0;
   for (const meal of qualifyingMeals) {
     const postReadings = readings.filter(
       (r) =>
@@ -128,17 +137,50 @@ function detectPostMealHyperglycemia(
     if (postReadings.length === 0) continue;
     evaluated++;
     const maxValue = Math.max(...postReadings.map((r) => r.value));
-    if (maxValue > TARGET_RANGE.high) highCount++;
+    if (maxValue <= TARGET_RANGE.high) continue;
+    highCount++;
+
+    // Clasificación de la causa probable (degrada limpio: sin vínculo o sin
+    // ratio, simplemente no se puede juzgar suficiencia del bolo).
+    if (meal.linkedMedicationLogId == null) {
+      noBolusCount++;
+    } else if (insulinCarbRatio != null && insulinCarbRatio > 0) {
+      const expectedDose = (meal.carbsG ?? 0) / insulinCarbRatio;
+      const log = medicationLogs.find((l) => l.id === meal.linkedMedicationLogId);
+      const actualDose = log?.doseAmount ?? null;
+      if (
+        actualDose != null &&
+        expectedDose > 0 &&
+        actualDose < expectedDose * INSUFFICIENT_BOLUS_THRESHOLD
+      ) {
+        insufficientBolusCount++;
+      } else {
+        otherCauseCount++;
+      }
+    } else {
+      bolusNoRatioCount++;
+    }
   }
 
   if (evaluated < MIN_QUALIFYING_MEALS) return null;
   const rate = highCount / evaluated;
   if (rate < POST_MEAL_HIGH_RATE_THRESHOLD) return null;
 
+  const breakdownParts: string[] = [];
+  if (noBolusCount > 0) breakdownParts.push(`${noBolusCount} sin bolo registrado`);
+  if (insufficientBolusCount > 0)
+    breakdownParts.push(`${insufficientBolusCount} con bolo probablemente insuficiente`);
+  if (bolusNoRatioCount > 0)
+    breakdownParts.push(`${bolusNoRatioCount} con bolo (ratio no configurado)`);
+  if (otherCauseCount > 0)
+    breakdownParts.push(`${otherCauseCount} otra causa (bolo aparentemente adecuado)`);
+  const breakdown =
+    breakdownParts.length > 0 ? ` De estas: ${breakdownParts.join(", ")}.` : "";
+
   return {
     id: "post_meal_hyperglycemia",
     title: "Glucosa alta después de comidas con muchos carbohidratos",
-    description: `En ${highCount} de ${evaluated} comidas con ${HIGH_CARB_THRESHOLD_G}g+ de carbohidratos, tu glucosa superó ${TARGET_RANGE.high} mg/dL dentro de las 2 horas siguientes.`,
+    description: `En ${highCount} de ${evaluated} comidas con ${HIGH_CARB_THRESHOLD_G}g+ de carbohidratos, tu glucosa superó ${TARGET_RANGE.high} mg/dL dentro de las 2 horas siguientes.${breakdown}`,
     severity: "watch",
     suggestedQuery: "control glucémico postprandial y conteo de carbohidratos en diabetes tipo 1",
     evidenceCount: evaluated,
@@ -297,7 +339,8 @@ export function detectPatterns(
   medications: Medication[],
   medicationLogs: MedicationLog[],
   lifestyleMetrics: LifestyleMetric[] = [],
-  targetLow: number = TARGET_RANGE.low
+  targetLow: number = TARGET_RANGE.low,
+  insulinCarbRatio: number | null = null
 ): PatternFinding[] {
   const sleepDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "sleepScore");
   const hrvDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "hrvMs");
@@ -306,7 +349,7 @@ export function detectPatterns(
     detectLowTimeInRange(readings),
     detectNocturnalHypoglycemia(readings, targetLow),
     detectDawnPhenomenon(readings),
-    detectPostMealHyperglycemia(readings, meals),
+    detectPostMealHyperglycemia(readings, meals, medicationLogs, insulinCarbRatio),
     detectMedicationAdherence(medications, medicationLogs),
     detectLifestyleCorrelation(
       sleepDays,

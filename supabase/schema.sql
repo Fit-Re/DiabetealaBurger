@@ -60,6 +60,7 @@ create table if not exists meals (
   items jsonb not null default '[]',
   source text not null,
   ai_notes text,
+  linked_medication_log_id bigint references medication_logs (id) on delete set null,
   created_at_ms bigint not null default (extract(epoch from now()) * 1000)
 );
 create index if not exists idx_meals_patient_timestamp on meals (patient_id, timestamp_ms desc);

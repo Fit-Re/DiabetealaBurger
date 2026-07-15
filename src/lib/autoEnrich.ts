@@ -43,7 +43,8 @@ export async function runPatternAnalysis(): Promise<PatternFinding[]> {
       medications,
       medicationLogs,
       lifestyleMetrics,
-      targetLow
+      targetLow,
+      profile?.insulinCarbRatio ?? null
     );
   } catch {
     return [];

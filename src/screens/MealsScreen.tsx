@@ -9,19 +9,26 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   computeMealTotals,
   deleteMeal,
+  getActiveMedications,
   getMealsSince,
+  getMedicationLogsSince,
   insertMeal,
 } from "../db/database";
 import { runBackgroundTasks } from "../lib/autoEnrich";
 import { parseMealPhoto } from "../lib/geminiVision";
 import type { ParsedMeal } from "../lib/geminiVision";
-import type { Meal } from "../types";
+import type { Meal, MedicationLog } from "../types";
+import { mergeDatePart, mergeTimePart, formatDate, formatTime } from "../lib/dateTimeUtils";
+
+const BOLUS_LOOKBACK_MS = 6 * 60 * 60 * 1000;
 
 function startOfTodayMs(): number {
   const now = new Date();
@@ -46,16 +53,52 @@ export default function MealsScreen() {
   const [proteinG, setProteinG] = useState("");
   const [fatG, setFatG] = useState("");
 
+  const [dateTime, setDateTime] = useState(() => new Date());
+  const [pickerMode, setPickerMode] = useState<"date" | "time" | null>(null);
+  const [linkedMedicationLogId, setLinkedMedicationLogId] = useState<number | null>(null);
+  const [bolusLogs, setBolusLogs] = useState<MedicationLog[]>([]);
+
   const load = useCallback(async () => {
     const rows = await getMealsSince(startOfTodayMs());
     setMeals(rows);
   }, []);
 
+  // Carga las dosis de insulina bolo de las últimas 6h para poder ligar la
+  // comida a un bolo aplicado. Filtramos client-side por tipo (no hay query
+  // server-side por tipo, consistente con el estilo del resto del archivo).
+  // Falla en silencio: si algo truena, simplemente no ofrecemos candidatos.
+  const loadBolusCandidates = useCallback(async () => {
+    try {
+      const [logs, medications] = await Promise.all([
+        getMedicationLogsSince(Date.now() - BOLUS_LOOKBACK_MS),
+        getActiveMedications(),
+      ]);
+      const candidates = logs.filter(
+        (log) =>
+          medications.find((m) => m.id === log.medicationId)?.type === "insulin_bolus"
+      );
+      setBolusLogs(candidates);
+    } catch {
+      setBolusLogs([]);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+      loadBolusCandidates();
+    }, [load, loadBolusCandidates])
   );
+
+  const openPicker = (mode: "date" | "time") => setPickerMode(mode);
+
+  const onPickerChange = (event: { type: string }, selected?: Date) => {
+    if (Platform.OS === "android") setPickerMode(null);
+    if (event.type === "dismissed" || !selected) return;
+    setDateTime((prev) =>
+      pickerMode === "date" ? mergeDatePart(prev, selected) : mergeTimePart(prev, selected)
+    );
+  };
 
   const resetForm = () => {
     setImageUri(null);
@@ -68,6 +111,8 @@ export default function MealsScreen() {
     setSugarG("");
     setProteinG("");
     setFatG("");
+    setDateTime(new Date());
+    setLinkedMedicationLogId(null);
   };
 
   const applyParsed = (result: ParsedMeal) => {
@@ -162,10 +207,14 @@ export default function MealsScreen() {
       );
       return;
     }
+    if (dateTime.getTime() > Date.now()) {
+      Alert.alert("Fecha inválida", "No puedes registrar una comida en el futuro.");
+      return;
+    }
     setSaving(true);
     try {
       await insertMeal({
-        timestampMs: Date.now(),
+        timestampMs: dateTime.getTime(),
         description: context.trim() || null,
         calories: calories ? Number(calories.replace(",", ".")) : null,
         carbsG: carbsG ? Number(carbsG.replace(",", ".")) : null,
@@ -176,6 +225,7 @@ export default function MealsScreen() {
         items: parsed?.items ?? [],
         source: parsed ? "photo" : "manual",
         aiNotes: parsed?.aiNotes ?? null,
+        linkedMedicationLogId,
       });
       resetForm();
       setShowAddForm(false);
@@ -239,7 +289,13 @@ export default function MealsScreen() {
       )}
 
       {!showAddForm && (
-        <Pressable style={styles.addButton} onPress={() => setShowAddForm(true)}>
+        <Pressable
+          style={styles.addButton}
+          onPress={() => {
+            loadBolusCandidates();
+            setShowAddForm(true);
+          }}
+        >
           <Text style={styles.addButtonText}>+ Agregar comida</Text>
         </Pressable>
       )}
@@ -277,6 +333,83 @@ export default function MealsScreen() {
                 )}
               </Pressable>
             </>
+          )}
+
+          <Text style={styles.label}>Día y hora de la comida</Text>
+          <View style={styles.row}>
+            <Pressable style={[styles.input, styles.flex1]} onPress={() => openPicker("date")}>
+              <Text style={styles.pickerText}>{formatDate(dateTime)}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.input, styles.flex1, styles.marginLeft]}
+              onPress={() => openPicker("time")}
+            >
+              <Text style={styles.pickerText}>{formatTime(dateTime)}</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.hint}>
+            Por defecto es ahora — tocá fecha u hora para cargar una comida de otro momento.
+          </Text>
+
+          {pickerMode && (
+            <View style={styles.pickerBox}>
+              <DateTimePicker
+                value={dateTime}
+                mode={pickerMode}
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                maximumDate={new Date()}
+                onChange={onPickerChange}
+              />
+              {Platform.OS === "ios" && (
+                <Pressable style={styles.doneButton} onPress={() => setPickerMode(null)}>
+                  <Text style={styles.doneButtonText}>Listo</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
+          <Text style={styles.label}>Ligar a dosis de insulina (opcional)</Text>
+          {bolusLogs.length === 0 ? (
+            <Text style={styles.hint}>Sin dosis de insulina bolus recientes.</Text>
+          ) : (
+            <View style={styles.bolusGrid}>
+              <Pressable
+                style={[
+                  styles.bolusChip,
+                  linkedMedicationLogId === null && styles.bolusChipSelected,
+                ]}
+                onPress={() => setLinkedMedicationLogId(null)}
+              >
+                <Text
+                  style={[
+                    styles.bolusChipText,
+                    linkedMedicationLogId === null && styles.bolusChipTextSelected,
+                  ]}
+                >
+                  Ninguna / no apliqué bolo
+                </Text>
+              </Pressable>
+              {bolusLogs.map((log) => {
+                const selected = linkedMedicationLogId === log.id;
+                return (
+                  <Pressable
+                    key={log.id}
+                    style={[styles.bolusChip, selected && styles.bolusChipSelected]}
+                    onPress={() => setLinkedMedicationLogId(selected ? null : log.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.bolusChipText,
+                        selected && styles.bolusChipTextSelected,
+                      ]}
+                    >
+                      {formatTime(new Date(log.takenAtMs))}
+                      {log.doseAmount != null ? ` · ${log.doseAmount} u` : ""}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           )}
 
           <Text style={styles.label}>Descripción (opcional)</Text>
@@ -470,6 +603,37 @@ const styles = StyleSheet.create({
     borderColor: "#e5e7eb",
   },
   notesInput: { minHeight: 60, textAlignVertical: "top" },
+  pickerText: { fontSize: 15, color: "#111827", textAlign: "center" },
+  marginLeft: { marginLeft: 8 },
+  pickerBox: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    alignItems: "center",
+    paddingBottom: 8,
+  },
+  doneButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    marginTop: 4,
+  },
+  doneButtonText: { color: "#fff", fontWeight: "700" },
+  bolusGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  bolusChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  bolusChipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
+  bolusChipText: { fontSize: 13, color: "#374151" },
+  bolusChipTextSelected: { color: "#fff" },
   analyzeButton: {
     backgroundColor: "#111827",
     borderRadius: 12,
