@@ -274,7 +274,114 @@ En `supabase/functions/sync-health-data/index.ts`:
 
 ---
 
-## Fase 2: Correlación insulina-comida-glucosa
+## Fase 1.5: Restructura de `autoEnrich` para modo gratis (bloqueante de Fase 4)
+
+**Motivo**: `runBackgroundEnrichment()` (`src/lib/autoEnrich.ts:25-58`) tiene un `return` temprano en la línea 28 (`if (!voyageKey) return;`). Todo lo que va después — incluida la detección de patrones (`detectPatterns`, línea 40) — **no corre sin API key del proveedor de embeddings**. Si la Fase 4 mete la persistencia de `pattern_history` y las notificaciones proactivas ahí adentro (como decía el plan original), esas funciones quedan **muertas en modo gratis**. Eso es un retroceso inaceptable dado el requisito de que la app funcione gratis.
+
+**Cambio**: separar en dos funciones con responsabilidades distintas, en `src/lib/autoEnrich.ts`:
+
+```ts
+// SIEMPRE corre (gratis, 100% cliente): detección de patrones + (Fase 4) persistencia
+// de pattern_history + notificaciones proactivas. No depende de ninguna key de pago.
+export async function runPatternAnalysis(): Promise<PatternFinding[]> {
+  try {
+    const since = Date.now() - ENRICHMENT_WINDOW_MS;
+    const [readings, meals, medications, medicationLogs, lifestyleMetrics] = await Promise.all([
+      getReadingsSince(since), getMealsSince(since), getActiveMedications(),
+      getMedicationLogsSince(since), getLifestyleMetricsSince(since),
+    ]);
+    const profile = await getPatientProfile().catch(() => null);
+    return detectPatterns(readings, meals, medications, medicationLogs, lifestyleMetrics,
+      profile?.targetRangeLow ?? TARGET_RANGE.low);
+  } catch {
+    return [];
+  }
+}
+
+// Enriquecimiento OPCIONAL con literatura médica: solo si hay key del proveedor configurada.
+// Recibe los patrones ya detectados para no recalcularlos.
+export async function runBackgroundEnrichment(patterns: PatternFinding[]): Promise<void> {
+  try {
+    const key = await getEmbeddingApiKey(); // Fase 2: Gemini en vez de Voyage
+    if (!key) return;
+    for (const pattern of patterns.slice(0, MAX_PATTERNS_TO_ENRICH)) {
+      await searchKnowledge(pattern.suggestedQuery, { topK: 3, allowLiveFallback: true });
+    }
+  } catch { /* oportunista, no interrumpe */ }
+}
+```
+
+Actualizar los 3 llamadores (`AddReadingScreen.tsx:70`, `MealsScreen.tsx:183`, y donde se dispare tras el sync) para llamar primero `runPatternAnalysis()` y luego, sin `await`, `runBackgroundEnrichment(patterns)`. Ambos siguen siendo fire-and-forget desde la UI.
+
+**Verificación Fase 1.5**:
+- [ ] Sin ninguna API key configurada, guardar una lectura sigue disparando `detectPatterns` (verificar con un `console.log` temporal o breakpoint que el motor corre).
+- [ ] `npx tsc --noEmit` limpio.
+- [ ] `grep -n "if (!voyageKey) return" src/lib/autoEnrich.ts` → sin resultados (ya no bloquea el análisis).
+
+---
+
+## Fase 2: Migración a proveedor gratuito de IA (Google Gemini)
+
+**Decisión del usuario (2026-07-15)**: la app debe funcionar gratis. Se reemplaza Voyage AI (embeddings, de pago) y Anthropic Claude (visión + síntesis, de pago) por Google Gemini, que ofrece tier gratuito sin billing para embeddings y generación (Flash), ambos con visión y salida JSON.
+
+> ⚠️ **VERIFICACIÓN OBLIGATORIA ANTES DE CODIFICAR** (no se pudo confirmar en vivo en la sesión de planificación por límite del buscador). El implementador DEBE abrir y leer estas páginas antes de escribir código, y ajustar nombres de modelo / endpoints / campos a lo que digan:
+> - Embeddings: https://ai.google.dev/gemini-api/docs/embeddings
+> - Generación + visión: https://ai.google.dev/gemini-api/docs/text-generation y https://ai.google.dev/gemini-api/docs/vision
+> - Salida estructurada JSON: https://ai.google.dev/gemini-api/docs/structured-output
+> - Límites del tier gratis: https://ai.google.dev/gemini-api/docs/rate-limits
+>
+> Valores esperados **a confirmar** (conocimiento previo, no verificado esta sesión): modelo de embeddings `gemini-embedding-001` con `outputDimensionality` configurable (Matryoshka); modelo de generación/visión `gemini-2.5-flash` (o `gemini-2.0-flash`); base del endpoint `https://generativelanguage.googleapis.com/v1beta/models/<model>:<method>`; auth por header `x-goog-api-key: <KEY>` o query `?key=<KEY>`; visión vía `inline_data` (base64); JSON vía `responseMimeType: "application/json"` + `responseSchema`.
+
+### 2.1 Riesgo técnico central: incompatibilidad de embeddings existentes
+
+Voyage `voyage-3.5` produce vectores de **1024 dimensiones**; Gemini produce otra dimensión (default distinto, configurable). **Los embeddings ya guardados en `knowledge_chunks` son de otro modelo y NO son comparables con queries de Gemini** — mezclarlos daría similitudes basura. Además la comparación coseno solo tiene sentido si TODOS los chunks y la query vienen del mismo modelo.
+
+**Mitigación obligatoria** (para que "nada falle"):
+1. Fijar `outputDimensionality` de Gemini a un valor estable y documentarlo como constante (`EMBEDDING_DIMENSIONS`).
+2. En la migración, **purgar `knowledge_chunks` y re-ingerir el corpus curado** con Gemini (el corpus está en el bundle, `ingestCorpus` es idempotente por slug — basta con vaciar la tabla primero). Agregar `deleteAllKnowledgeChunks()` a `database.ts` y llamarlo una vez desde la UI de Ajustes con confirmación (`Alert`), o vía un botón "Reconstruir base de conocimiento".
+3. Como los chunks de PubMed en vivo (`curated: false`) también quedan obsoletos, se borran en el mismo purgado y se vuelven a generar orgánicamente en el siguiente uso.
+
+Esto NO afecta datos clínicos del paciente (glucosa, comidas, etc.) — `knowledge_chunks` es solo la biblioteca de evidencia, regenerable.
+
+### 2.2 Nuevo módulo `src/lib/gemini.ts`
+
+Reemplaza a `src/lib/voyage.ts`. Lee `src/lib/voyage.ts` completo (69 líneas) para copiar la forma exacta de `getVoyageApiKey`/`setVoyageApiKey`/`clearVoyageApiKey` (SecureStore) y `cosineSimilarity` (esta última se copia intacta, es pura matemática). Provee:
+- `getGeminiApiKey`/`setGeminiApiKey`/`clearGeminiApiKey` (nueva storage key `gemini_api_key`).
+- `embedTexts(texts, inputType)` con la misma firma pública que hoy exporta `voyage.ts`, para minimizar cambios en `knowledgeBase.ts`. Mapear `inputType` "document"/"query" a los `taskType` de Gemini (`RETRIEVAL_DOCUMENT`/`RETRIEVAL_QUERY` — confirmar nombres exactos en la doc). Batch: confirmar si Gemini soporta `batchEmbedContents` para no hacer N requests.
+- `cosineSimilarity` (idéntica).
+- Re-exportar un alias `getEmbeddingApiKey = getGeminiApiKey` para que `autoEnrich.ts` (Fase 1.5) no dependa del nombre del proveedor.
+
+### 2.3 Reescribir `src/lib/anthropic.ts` → `src/lib/geminiVision.ts` (o mantener nombre de archivo, cambiar implementación)
+
+Las tres funciones que hoy usan Claude deben usar Gemini Flash, **manteniendo las mismas firmas públicas y los mismos tipos de retorno** para no tocar a sus llamadores (`ImportScreenshotScreen.tsx`, `MealsScreen.tsx`, `HomeScreen.tsx`, `SettingsScreen.tsx`):
+- `parseLibreLinkScreenshot(base64)` → visión Gemini, mismo retorno.
+- `parseMealPhoto(base64, mime, context, prevAnswers)` → visión Gemini, incluido el flujo de preguntas aclaratorias (mismo shape de retorno).
+- `synthesizeEvidence(query, evidence)` → generación Gemini, mismo shape (`etiology`/`management`/`likelyOutcome`/`evidenceStrength`/`caveats`), con las MISMAS instrucciones anti-alucinación que ya tiene el prompt actual (líneas 344-348 del `anthropic.ts` original — cópialas literales, solo cambia el transporte).
+
+Mantener los `throw new Error(...)` en español ya existentes para que el manejo de error de la UI siga funcionando igual.
+
+### 2.4 Actualizar referencias
+
+- `src/lib/knowledgeBase.ts`: cambiar `import { cosineSimilarity, embedTexts } from "./voyage"` → `from "./gemini"`. Nada más cambia (misma firma).
+- `src/lib/autoEnrich.ts`: usar `getEmbeddingApiKey` (alias de Gemini) — ya cubierto en Fase 1.5.
+- `src/screens/SettingsScreen.tsx`: la sección de API keys debe pedir **una sola key de Gemini** en vez de las de Voyage + Anthropic + (opcional) mantener OCR.space que sigue gratis. Leer la sección actual de keys y reemplazar los dos campos de pago por uno. Agregar el botón "Reconstruir base de conocimiento" (2.1) con su `Alert` de confirmación.
+- Borrar `src/lib/voyage.ts` y `src/lib/anthropic.ts` solo tras confirmar que ninguna referencia queda (`grep -rn "from \"../lib/voyage\"\|from \"./voyage\"\|lib/anthropic" src/`).
+
+### 2.5 OCR.space se mantiene
+
+`src/lib/ocrSpace.ts` ya es gratis (tier 25k/mes) — no se toca. Sigue siendo la vía gratuita de captura de pantalla; Gemini Vision pasa a ser la vía "IA" (ahora también gratis). El selector de 3 vías en `ImportScreenshotScreen.tsx` se mantiene igual.
+
+### Verificación Fase 2
+- [ ] El implementador leyó las 4 páginas de doc de Gemini y ajustó modelo/endpoint/campos a lo real (citar en comentarios de código la URL de doc usada, como exige `AGENTS.md`).
+- [ ] `EMBEDDING_DIMENSIONS` fijado como constante; `knowledge_chunks` purgado y re-ingerido; una búsqueda de conocimiento devuelve resultados con scores plausibles (>0.5 para queries obviamente relacionadas al corpus).
+- [ ] `parseMealPhoto` sobre una foto real devuelve macros con el mismo shape que antes; `synthesizeEvidence` devuelve las 5 secciones.
+- [ ] `grep -rn "voyage\|anthropic\|VOYAGE\|Anthropic\|claude-sonnet" src/` → sin resultados (proveedor de pago completamente removido).
+- [ ] `npx tsc --noEmit` limpio.
+- [ ] App funcional end-to-end con SOLO una key gratuita de Gemini configurada (o incluso sin ninguna key: el núcleo de patrones sigue corriendo por Fase 1.5).
+
+---
+
+## Fase 3: Correlación insulina-comida-glucosa
 
 **Depende de Fase 1** (usa `insulin_carb_ratio` del perfil).
 
@@ -321,9 +428,9 @@ Cambiar la firma para recibir también `medicationLogs: MedicationLog[]` y `prof
 
 ---
 
-## Fase 3: Motor de patrones con memoria/tendencia + reporte proactivo
+## Fase 4: Motor de patrones con memoria/tendencia + reporte proactivo
 
-**Depende de Fase 1** (perfil para umbrales personalizados) y beneficia de Fase 2 (mejor causalidad post-comida), pero puede implementarse independientemente si se prioriza.
+**Depende de Fase 1** (perfil para umbrales personalizados) y **Fase 1.5** (restructura de `autoEnrich` para que la memoria de patrones corra gratis). Beneficia de Fase 3 (mejor causalidad post-comida), pero puede implementarse independientemente si se prioriza.
 
 ### 3.1 Schema — historial de patrones
 
@@ -360,7 +467,9 @@ En `src/lib/patterns.ts`:
 
 ### 3.3 Persistir y calcular tendencia
 
-En `src/lib/autoEnrich.ts` (tras `detectPatterns()` en línea 40, antes del loop de enriquecimiento):
+> **Ubicación (post Fase 1.5)**: esto va DENTRO de `runPatternAnalysis()` (la función que SIEMPRE corre gratis), no de `runBackgroundEnrichment()`. La persistencia de historial y las notificaciones NO deben depender de la key de Gemini.
+
+En `runPatternAnalysis()` (tras `detectPatterns()`, antes de devolver los patrones):
 ```ts
 const { data: previousRuns } = await supabase
   .from("pattern_history")
@@ -400,7 +509,7 @@ export async function notifyPatternFinding(title: string, body: string): Promise
 }
 ```
 
-En `autoEnrich.ts`, tras persistir en `pattern_history`: si `pattern.severity === "attention"` y `!notified` (no se ha notificado ya esta semana para el mismo `pattern_id` — chequear contra `previousRuns` con `notified: true` en los últimos 7 días), llamar `notifyPatternFinding(pattern.title, pattern.description)` y marcar el registro insertado con `notified: true`.
+En `runPatternAnalysis()` (Fase 1.5), tras persistir en `pattern_history`: si `pattern.severity === "attention"` y `!notified` (no se ha notificado ya esta semana para el mismo `pattern_id` — chequear contra `previousRuns` con `notified: true` en los últimos 7 días), llamar `notifyPatternFinding(pattern.title, pattern.description)` y marcar el registro insertado con `notified: true`.
 
 ### 3.5 UI — mostrar tendencia en `HomeScreen.tsx`
 
@@ -423,6 +532,8 @@ En `PatternCard` (líneas 354-447), si `pattern.trend` existe, mostrar un badge 
 3. Correr la app en Expo Go (túnel), flujo completo: crear perfil → registrar HbA1c → registrar comida con hora retroactiva y bolo ligado → ver patrón post-comida con causa distinguida → ver patrón de fenómeno del alba correctamente filtrado si hubo hipo nocturna → recibir notificación proactiva si aplica.
 4. Revisar `sync_runs` tras una corrida del cron para confirmar que el cambio de offset por perfil no rompió el sync automático existente.
 5. Revisar en Supabase que las 4 tablas nuevas (`patient_profile`, `hba1c_readings`, `pattern_history`, más la columna en `meals`) tienen RLS activo y las políticas correctas (`select * from pg_policies where tablename like 'patient_%' or tablename = 'hba1c_readings' or tablename = 'pattern_history';`).
+6. **Modo gratis**: correr la app con CERO API keys configuradas y confirmar que el núcleo funciona — sync, entrada manual, OCR.space, motor de patrones, memoria/tendencia y notificaciones proactivas. Solo el enriquecimiento con literatura debe quedar inactivo (degradación limpia, sin errores).
+7. **Proveedor de pago removido**: `grep -rn "voyage\|Voyage\|anthropic\|Anthropic\|claude-sonnet" src/` → sin resultados. Confirmar que la única key de IA que pide Ajustes es la de Gemini (gratuita).
 
 ---
 
@@ -431,4 +542,5 @@ En `PatternCard` (líneas 354-447), si `pattern.trend` existe, mostrar un badge 
 - `lifestyle_metrics.raw` sin parsear (señal intradiaria de Ultrahuman atrapada sin usar).
 - `knowledge_chunks` compartida sin scoping por paciente, embeddings en `jsonb` comparados linealmente (no escala) — considerar `pgvector` si crece a multi-paciente real.
 - Credenciales de `sync_credentials` sin cifrado end-to-end (documentado como trade-off aceptado).
-- API keys de terceros (Anthropic, Voyage, OCR.space) viven en el cliente sin proxy de servidor.
+- API keys de terceros (Gemini, OCR.space) viven en el cliente sin proxy de servidor — costo cero mientras se use el tier gratis, pero sin control central de cuota/rotación.
+- Límites de tasa del tier gratis de Gemini (RPM/RPD): si la app escala a varios pacientes, el enriquecimiento podría toparse con el límite — monitorear y considerar backoff/cola si aparece.
