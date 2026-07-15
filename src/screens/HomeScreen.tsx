@@ -19,8 +19,10 @@ import {
   getLifestyleMetricsSince,
   getMealsSince,
   getMedicationLogsSince,
+  getReadingsBetween,
   getReadingsSince,
 } from "../db/database";
+import { addDays, isSameDay, startOfDay } from "../lib/dateTimeUtils";
 import { detectPatterns } from "../lib/patterns";
 import { searchKnowledge } from "../lib/knowledgeBase";
 import { synthesizeEvidence } from "../lib/anthropic";
@@ -36,25 +38,41 @@ import { TARGET_RANGE, TREND_LABELS } from "../types";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PATTERN_WINDOW_MS = 14 * DAY_MS;
 
+function dayLabel(day: Date): string {
+  const today = startOfDay(new Date());
+  if (isSameDay(day, today)) return "Hoy";
+  if (isSameDay(day, addDays(today, -1))) return "Ayer";
+  return day.toLocaleDateString("es-MX", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
 export default function HomeScreen() {
+  const [dayStart, setDayStart] = useState(() => startOfDay(new Date()));
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
   const [patterns, setPatterns] = useState<PatternFinding[]>([]);
   const [lifestyleMetrics, setLifestyleMetrics] = useState<LifestyleMetric[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  const isToday = isSameDay(dayStart, startOfDay(new Date()));
+
   const load = useCallback(async () => {
     const since = Date.now() - PATTERN_WINDOW_MS;
-    const [rows, meals, medications, medicationLogs, lifestyle] = await Promise.all([
-      getReadingsSince(since),
-      getMealsSince(since),
-      getActiveMedications(),
-      getMedicationLogsSince(since),
-      getLifestyleMetricsSince(since),
-    ]);
-    setReadings(rows.filter((r) => r.timestampMs >= Date.now() - DAY_MS));
+    const [dayReadings, rows, meals, medications, medicationLogs, lifestyle] =
+      await Promise.all([
+        getReadingsBetween(dayStart.getTime(), dayStart.getTime() + DAY_MS),
+        getReadingsSince(since),
+        getMealsSince(since),
+        getActiveMedications(),
+        getMedicationLogsSince(since),
+        getLifestyleMetricsSince(since),
+      ]);
+    setReadings(dayReadings);
     setLifestyleMetrics(lifestyle);
     setPatterns(detectPatterns(rows, meals, medications, medicationLogs, lifestyle));
-  }, []);
+  }, [dayStart]);
 
   useFocusEffect(
     useCallback(() => {
@@ -67,6 +85,10 @@ export default function HomeScreen() {
     await load();
     setRefreshing(false);
   };
+
+  const goToPreviousDay = () => setDayStart((d) => addDays(d, -1));
+  const goToNextDay = () => setDayStart((d) => (isToday ? d : addDays(d, 1)));
+  const goToToday = () => setDayStart(startOfDay(new Date()));
 
   const onDelete = (id: number) => {
     Alert.alert("Eliminar lectura", "¿Seguro que quieres eliminarla?", [
@@ -93,9 +115,29 @@ export default function HomeScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      <Text style={styles.title}>Últimas 24 horas</Text>
+      <View style={styles.dayNavRow}>
+        <Pressable
+          style={styles.dayNavButton}
+          onPress={goToPreviousDay}
+          hitSlop={8}
+        >
+          <Text style={styles.dayNavArrow}>‹</Text>
+        </Pressable>
+        <Pressable onPress={goToToday} disabled={isToday} style={styles.dayNavLabelWrap}>
+          <Text style={styles.title}>{dayLabel(dayStart)}</Text>
+          {!isToday && <Text style={styles.dayNavToday}>Volver a hoy</Text>}
+        </Pressable>
+        <Pressable
+          style={[styles.dayNavButton, isToday && styles.dayNavButtonDisabled]}
+          onPress={goToNextDay}
+          disabled={isToday}
+          hitSlop={8}
+        >
+          <Text style={[styles.dayNavArrow, isToday && styles.dayNavArrowDisabled]}>›</Text>
+        </Pressable>
+      </View>
 
-      {latest && <CurrentReadingCard reading={latest} />}
+      {latest && <CurrentReadingCard reading={latest} isToday={isToday} />}
 
       {chronological.length > 1 ? (
         <View style={styles.chartCard}>
@@ -123,7 +165,7 @@ export default function HomeScreen() {
       ) : (
         <View style={styles.emptyChart}>
           <Text style={styles.emptyText}>
-            Necesitas al menos 2 lecturas hoy para ver la gráfica.
+            Necesitas al menos 2 lecturas {isToday ? "hoy" : "ese día"} para ver la gráfica.
           </Text>
         </View>
       )}
@@ -160,10 +202,14 @@ export default function HomeScreen() {
         <PatternCard key={p.id} pattern={p} />
       ))}
 
-      <Text style={styles.subtitle}>Lecturas recientes</Text>
+      <Text style={styles.subtitle}>
+        {isToday ? "Lecturas de hoy" : `Lecturas — ${dayLabel(dayStart)}`}
+      </Text>
       {readings.length === 0 && (
         <Text style={styles.emptyText}>
-          Aún no hay lecturas. Agrega una manualmente o importa una captura de LibreLink.
+          {isToday
+            ? "Aún no hay lecturas. Agrega una manualmente o importa una captura de LibreLink."
+            : "No hay lecturas registradas ese día."}
         </Text>
       )}
       {readings.map((r) => (
@@ -207,7 +253,13 @@ function timeAgo(ms: number): string {
   return `hace ${diffHr} h`;
 }
 
-function CurrentReadingCard({ reading }: { reading: GlucoseReading }) {
+function CurrentReadingCard({
+  reading,
+  isToday,
+}: {
+  reading: GlucoseReading;
+  isToday: boolean;
+}) {
   const status =
     reading.value < TARGET_RANGE.low
       ? "low"
@@ -224,7 +276,9 @@ function CurrentReadingCard({ reading }: { reading: GlucoseReading }) {
     <View style={[styles.readingCard, statusStyles.card]}>
       <View style={[styles.readingCardBar, statusStyles.bar]} />
       <View style={styles.readingCardContent}>
-        <Text style={styles.readingCardLabel}>Glucosa</Text>
+        <Text style={styles.readingCardLabel}>
+          {isToday ? "Glucosa" : "Última lectura del día"}
+        </Text>
         <View style={styles.readingCardValueRow}>
           <Text style={styles.readingCardValue}>{reading.value}</Text>
           <Text style={styles.readingCardUnit}>{reading.unit}</Text>
@@ -232,7 +286,14 @@ function CurrentReadingCard({ reading }: { reading: GlucoseReading }) {
             <Text style={styles.readingCardTrend}>{TREND_LABELS[reading.trend].split(" ")[0]}</Text>
           )}
         </View>
-        <Text style={styles.readingCardMeta}>{timeAgo(reading.timestampMs)}</Text>
+        <Text style={styles.readingCardMeta}>
+          {isToday
+            ? timeAgo(reading.timestampMs)
+            : new Date(reading.timestampMs).toLocaleTimeString("es-MX", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+        </Text>
       </View>
     </View>
   );
@@ -395,6 +456,30 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: "#111827",
   },
+  dayNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dayNavLabelWrap: { flex: 1, alignItems: "center" },
+  dayNavToday: {
+    fontSize: 11,
+    color: "#2563eb",
+    fontWeight: "600",
+    marginTop: -6,
+    marginBottom: 8,
+  },
+  dayNavButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayNavButtonDisabled: { opacity: 0.3 },
+  dayNavArrow: { fontSize: 22, fontWeight: "700", color: "#111827" },
+  dayNavArrowDisabled: { color: "#9ca3af" },
   chartCard: {
     backgroundColor: "#fff",
     borderRadius: 12,

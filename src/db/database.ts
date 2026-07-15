@@ -82,6 +82,19 @@ export async function getReadingsSince(
   return unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
 }
 
+export async function getReadingsBetween(
+  startMs: number,
+  endMs: number
+): Promise<GlucoseReading[]> {
+  const result = await supabase
+    .from("glucose_readings")
+    .select("*")
+    .gte("timestamp_ms", startMs)
+    .lt("timestamp_ms", endMs)
+    .order("timestamp_ms", { ascending: false });
+  return unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
+}
+
 export async function getRecentReadings(
   limit: number = 20
 ): Promise<GlucoseReading[]> {

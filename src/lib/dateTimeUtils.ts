@@ -17,3 +17,23 @@ export function formatDate(d: Date): string {
 export function formatTime(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+
+export function startOfDay(d: Date): Date {
+  const start = new Date(d);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+export function addDays(d: Date, delta: number): Date {
+  const next = new Date(d);
+  next.setDate(next.getDate() + delta);
+  return next;
+}
+
+export function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
