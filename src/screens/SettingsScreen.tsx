@@ -29,17 +29,14 @@ import {
 import type { IngestProgress } from "../lib/knowledgeBase";
 import type { KnowledgeSearchResult } from "../types";
 import {
-  clearStoredCredentials as clearLibreLinkUpCredentials,
-  getStoredCredentials as getLibreLinkUpCredentials,
-  setStoredCredentials as setLibreLinkUpCredentials,
-  syncLibreLinkUp,
-} from "../lib/librelinkup";
-import {
-  clearStoredCredentials as clearUltrahumanCredentials,
-  getStoredCredentials as getUltrahumanCredentials,
-  setStoredCredentials as setUltrahumanCredentials,
-  syncUltrahuman,
-} from "../lib/ultrahuman";
+  clearSyncCredentials,
+  getRecentSyncRuns,
+  getSyncStatus,
+  saveLibreLinkUpCredentials,
+  saveUltrahumanCredentials,
+  triggerSyncNow,
+} from "../lib/syncCredentials";
+import type { SyncRun } from "../lib/syncCredentials";
 import { clearOcrApiKey, getOcrApiKey, setOcrApiKey } from "../lib/ocrSpace";
 import { useAuth } from "../lib/auth";
 
@@ -134,78 +131,139 @@ function ApiKeySection({
   );
 }
 
-function LibreLinkUpSection() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [hasStoredCreds, setHasStoredCreds] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [lastResult, setLastResult] = useState<string | null>(null);
+function formatDateTime(ms: number): string {
+  return new Date(ms).toLocaleString("es-MX", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function lastRunLabel(run: SyncRun | undefined): string | null {
+  if (!run) return null;
+  const when = formatDateTime(run.ranAtMs);
+  if (run.status === "error") return `Último intento automático: ${when} — error: ${run.message}`;
+  return `Última sincronización automática: ${when} — ${run.importedCount} nuevos registros.`;
+}
+
+function AutoSyncSection() {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof getSyncStatus>> | null>(null);
+  const [runs, setRuns] = useState<SyncRun[]>([]);
+  const [libreEmail, setLibreEmail] = useState("");
+  const [librePassword, setLibrePassword] = useState("");
+  const [uhToken, setUhToken] = useState("");
+  const [syncingNow, setSyncingNow] = useState(false);
+  const [nowResult, setNowResult] = useState<string | null>(null);
+
+  const refresh = async () => {
+    try {
+      const [s, r] = await Promise.all([getSyncStatus(), getRecentSyncRuns(10)]);
+      setStatus(s);
+      setRuns(r);
+    } catch {
+      // Tablas de sync todavía no migradas en Supabase (ver supabase/schema.sql) — se
+      // resuelve solo una vez corrida la migración, no hace falta molestar al usuario acá.
+    }
+  };
 
   useEffect(() => {
-    getLibreLinkUpCredentials().then((creds) => setHasStoredCreds(!!creds));
+    refresh();
   }, []);
 
-  const onSaveCredentials = async () => {
-    if (!email.trim() || !password) {
+  const onSaveLibre = async () => {
+    if (!libreEmail.trim() || !librePassword) {
       Alert.alert("Faltan datos", "Ingresa tu usuario y contraseña de LibreLinkUp.");
       return;
     }
-    await setLibreLinkUpCredentials(email, password);
-    setHasStoredCreds(true);
-    setEmail("");
-    setPassword("");
-    Alert.alert("Guardado", "Tus credenciales de LibreLinkUp se guardaron cifradas en este dispositivo.");
+    try {
+      await saveLibreLinkUpCredentials(libreEmail, librePassword);
+      setLibreEmail("");
+      setLibrePassword("");
+      await refresh();
+      Alert.alert(
+        "Guardado",
+        "Tus credenciales de LibreLinkUp quedaron guardadas en el servidor para la sincronización automática cada hora."
+      );
+    } catch (e: any) {
+      Alert.alert("Error al guardar", e?.message ?? "No se pudo guardar. Revisa que la migración de Supabase esté aplicada.");
+    }
   };
 
-  const onClearCredentials = () => {
-    Alert.alert("Eliminar credenciales", "¿Seguro que quieres eliminarlas?", [
+  const onSaveUltrahuman = async () => {
+    if (!uhToken.trim()) {
+      Alert.alert("Falta el token", "Ingresa tu Personal API Token de Ultrahuman.");
+      return;
+    }
+    try {
+      await saveUltrahumanCredentials(uhToken);
+      setUhToken("");
+      await refresh();
+      Alert.alert(
+        "Guardado",
+        "Tu token de Ultrahuman quedó guardado en el servidor para la sincronización automática cada hora."
+      );
+    } catch (e: any) {
+      Alert.alert("Error al guardar", e?.message ?? "No se pudo guardar. Revisa que la migración de Supabase esté aplicada.");
+    }
+  };
+
+  const onClear = (service: "librelinkup" | "ultrahuman", label: string) => {
+    Alert.alert(`Eliminar credenciales de ${label}`, "¿Seguro que quieres eliminarlas?", [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Eliminar",
         style: "destructive",
         onPress: async () => {
-          await clearLibreLinkUpCredentials();
-          setHasStoredCreds(false);
-          setLastResult(null);
+          await clearSyncCredentials(service);
+          await refresh();
         },
       },
     ]);
   };
 
-  const onSync = async () => {
-    setSyncing(true);
-    setLastResult(null);
+  const onSyncNow = async () => {
+    setSyncingNow(true);
+    setNowResult(null);
     try {
-      const result = await syncLibreLinkUp();
-      setLastResult(
-        `${result.patientName}: ${result.importedCount} lecturas nuevas importadas (de ${result.fetchedCount} recibidas).`
+      const result = await triggerSyncNow();
+      const parts = result.results.map((r) =>
+        r.error ? `${r.service}: error — ${r.error}` : `${r.service}: ${r.importedCount ?? 0} nuevos`
       );
+      setNowResult(parts.join(" · ") || "No hay credenciales configuradas.");
+      await refresh();
     } catch (e: any) {
-      Alert.alert("Error al sincronizar", e?.message ?? "No se pudo sincronizar con LibreLinkUp.");
+      Alert.alert("Error al sincronizar", e?.message ?? "No se pudo invocar la sincronización.");
     } finally {
-      setSyncing(false);
+      setSyncingNow(false);
     }
   };
 
+  const hasLibre = !!status?.librelinkup;
+  const hasUh = !!status?.ultrahuman;
+  const lastLibreRun = runs.find((r) => r.service === "librelinkup");
+  const lastUhRun = runs.find((r) => r.service === "ultrahuman");
+
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>LibreLinkUp — sincronización automática (opcional)</Text>
+      <Text style={styles.sectionTitle}>Sincronización automática — LibreLinkUp y Ultrahuman</Text>
       <Text style={styles.description}>
-        Usa la API no oficial de LibreLinkUp (la misma que apps como Nightscout llevan años
-        usando) para traer tus lecturas automáticamente, sin capturas de pantalla. No es una
-        API soportada por Abbott: podría cambiar o dejar de funcionar sin aviso. Configura tu
-        cuenta de LibreLinkUp como "seguidor" de tu propio sensor antes de usar esto. No usa
-        créditos de Anthropic ni de Voyage.
-      </Text>
-      <Text style={styles.status}>
-        Credenciales: {hasStoredCreds ? "✅ Guardadas" : "⚠️ No configuradas"}
+        Las credenciales que guardes acá quedan en el servidor (Supabase), no solo en este
+        celular: un job corre cada hora y trae tus lecturas de LibreLinkUp y tus métricas de
+        Ultrahuman automáticamente, aunque la app esté cerrada. Quedan protegidas por Supabase
+        (cifrado en reposo + acceso restringido a tu propia cuenta) — nadie más que vos puede
+        verlas, aunque no es cifrado de extremo a extremo.
       </Text>
 
+      <Text style={styles.subsectionTitle}>LibreLinkUp</Text>
+      <Text style={styles.status}>
+        Credenciales: {hasLibre ? "✅ Guardadas en el servidor" : "⚠️ No configuradas"}
+      </Text>
       <TextInput
         style={styles.input}
         placeholder="Email de LibreLinkUp"
-        value={email}
-        onChangeText={setEmail}
+        value={libreEmail}
+        onChangeText={setLibreEmail}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="email-address"
@@ -213,133 +271,67 @@ function LibreLinkUpSection() {
       <TextInput
         style={styles.input}
         placeholder="Contraseña de LibreLinkUp"
-        value={password}
-        onChangeText={setPassword}
+        value={librePassword}
+        onChangeText={setLibrePassword}
         autoCapitalize="none"
         autoCorrect={false}
         secureTextEntry
       />
-      <Pressable style={styles.saveButton} onPress={onSaveCredentials}>
+      <Pressable style={styles.saveButton} onPress={onSaveLibre}>
         <Text style={styles.saveButtonText}>Guardar credenciales</Text>
       </Pressable>
-
-      {hasStoredCreds && (
+      {hasLibre && (
         <>
-          <Pressable
-            style={[styles.synthesizeButton, syncing && styles.disabled]}
-            onPress={onSync}
-            disabled={syncing}
-          >
-            <Text style={styles.saveButtonText}>
-              {syncing ? "Sincronizando..." : "Sincronizar ahora"}
-            </Text>
-          </Pressable>
-          {lastResult && <Text style={styles.status}>{lastResult}</Text>}
-          <Pressable style={styles.clearButton} onPress={onClearCredentials}>
+          {lastRunLabel(lastLibreRun) && (
+            <Text style={styles.status}>{lastRunLabel(lastLibreRun)}</Text>
+          )}
+          <Pressable style={styles.clearButton} onPress={() => onClear("librelinkup", "LibreLinkUp")}>
             <Text style={styles.clearButtonText}>Eliminar credenciales guardadas</Text>
           </Pressable>
         </>
       )}
-    </View>
-  );
-}
 
-function UltrahumanSection() {
-  const [token, setToken] = useState("");
-  const [hasStoredCreds, setHasStoredCreds] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [lastResult, setLastResult] = useState<string | null>(null);
-
-  useEffect(() => {
-    getUltrahumanCredentials().then((creds) => setHasStoredCreds(!!creds));
-  }, []);
-
-  const onSaveCredentials = async () => {
-    if (!token.trim()) {
-      Alert.alert("Falta el token", "Ingresa tu Personal API Token de Ultrahuman.");
-      return;
-    }
-    await setUltrahumanCredentials(token);
-    setHasStoredCreds(true);
-    setToken("");
-    Alert.alert("Guardado", "Tu token de Ultrahuman se guardó cifrado en este dispositivo.");
-  };
-
-  const onClearCredentials = () => {
-    Alert.alert("Eliminar credenciales", "¿Seguro que quieres eliminarlas?", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Eliminar",
-        style: "destructive",
-        onPress: async () => {
-          await clearUltrahumanCredentials();
-          setHasStoredCreds(false);
-          setLastResult(null);
-        },
-      },
-    ]);
-  };
-
-  const onSync = async () => {
-    setSyncing(true);
-    setLastResult(null);
-    try {
-      const result = await syncUltrahuman(7);
-      const errorsSuffix = result.errors.length
-        ? ` Errores: ${result.errors.join(" | ")}`
-        : "";
-      setLastResult(
-        `${result.daysImported} de ${result.daysAttempted} días importados.${errorsSuffix}`
-      );
-    } catch (e: any) {
-      Alert.alert("Error al sincronizar", e?.message ?? "No se pudo sincronizar con Ultrahuman.");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Ultrahuman — sueño, HRV y recuperación (opcional)</Text>
-      <Text style={styles.description}>
-        Usa el Personal API Token que generás en vision.ultrahuman.com/developer (iniciando
-        sesión con tu cuenta Ultrahuman) para traer tus datos de sueño, HRV, frecuencia cardíaca
-        en reposo y recuperación. No mandes tu email de cuenta acá — el token ya está atado a tu
-        cuenta y agregar el email hace que la API lo trate como acceso a otra cuenta, que
-        rechazaría con error 401. No usa créditos de Anthropic ni de Voyage.
-      </Text>
+      <Text style={[styles.subsectionTitle, { marginTop: 18 }]}>Ultrahuman</Text>
       <Text style={styles.status}>
-        Token: {hasStoredCreds ? "✅ Guardado" : "⚠️ No configurado"}
+        Token: {hasUh ? "✅ Guardado en el servidor" : "⚠️ No configurado"}
       </Text>
-
+      <Text style={styles.description}>
+        Usa el Personal API Token que generás en vision.ultrahuman.com/developer. No mandes tu
+        email de cuenta acá — el token ya está atado a tu cuenta.
+      </Text>
       <TextInput
         style={styles.input}
         placeholder="Personal API Token de Ultrahuman"
-        value={token}
-        onChangeText={setToken}
+        value={uhToken}
+        onChangeText={setUhToken}
         autoCapitalize="none"
         autoCorrect={false}
         secureTextEntry
       />
-      <Pressable style={styles.saveButton} onPress={onSaveCredentials}>
+      <Pressable style={styles.saveButton} onPress={onSaveUltrahuman}>
         <Text style={styles.saveButtonText}>Guardar credenciales</Text>
       </Pressable>
-
-      {hasStoredCreds && (
+      {hasUh && (
         <>
-          <Pressable
-            style={[styles.synthesizeButton, syncing && styles.disabled]}
-            onPress={onSync}
-            disabled={syncing}
-          >
-            <Text style={styles.saveButtonText}>
-              {syncing ? "Sincronizando..." : "Sincronizar últimos 7 días"}
-            </Text>
-          </Pressable>
-          {lastResult && <Text style={styles.status}>{lastResult}</Text>}
-          <Pressable style={styles.clearButton} onPress={onClearCredentials}>
+          {lastRunLabel(lastUhRun) && <Text style={styles.status}>{lastRunLabel(lastUhRun)}</Text>}
+          <Pressable style={styles.clearButton} onPress={() => onClear("ultrahuman", "Ultrahuman")}>
             <Text style={styles.clearButtonText}>Eliminar credenciales guardadas</Text>
           </Pressable>
+        </>
+      )}
+
+      {(hasLibre || hasUh) && (
+        <>
+          <Pressable
+            style={[styles.synthesizeButton, syncingNow && styles.disabled, { marginTop: 18 }]}
+            onPress={onSyncNow}
+            disabled={syncingNow}
+          >
+            <Text style={styles.saveButtonText}>
+              {syncingNow ? "Sincronizando..." : "Sincronizar ahora"}
+            </Text>
+          </Pressable>
+          {nowResult && <Text style={styles.status}>{nowResult}</Text>}
         </>
       )}
     </View>
@@ -558,9 +550,7 @@ export default function SettingsScreen() {
 
       <AccountSection />
 
-      <LibreLinkUpSection />
-
-      <UltrahumanSection />
+      <AutoSyncSection />
 
       <ApiKeySection
         title="API key de OCR.space — lectura gratis de capturas de LibreLink"
@@ -616,6 +606,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: { fontSize: 15, fontWeight: "600", color: "#111827", marginBottom: 6 },
+  subsectionTitle: { fontSize: 13, fontWeight: "700", color: "#374151", marginBottom: 6 },
   description: { fontSize: 13, color: "#6b7280", marginBottom: 10, lineHeight: 18 },
   status: { fontSize: 13, color: "#374151", marginBottom: 10, fontWeight: "600" },
   input: {
