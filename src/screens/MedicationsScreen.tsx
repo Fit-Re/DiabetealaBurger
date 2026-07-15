@@ -19,7 +19,7 @@ import {
   insertMedicationLog,
   updateMedicationNotificationIds,
 } from "../db/database";
-import { runBackgroundEnrichment } from "../lib/autoEnrich";
+import { runBackgroundTasks } from "../lib/autoEnrich";
 import {
   cancelNotifications,
   scheduleMedicationReminders,
@@ -252,7 +252,7 @@ export default function MedicationsScreen() {
         doseAmount: doseNumeric,
         notes: null,
       });
-      runBackgroundEnrichment();
+      runBackgroundTasks();
       setLoggingMedication(null);
       load();
     } catch (e: any) {

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { insertReading } from "../db/database";
-import { runBackgroundEnrichment } from "../lib/autoEnrich";
+import { runBackgroundTasks } from "../lib/autoEnrich";
 import type { TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
 import { mergeDatePart, mergeTimePart, formatDate, formatTime } from "../lib/dateTimeUtils";
@@ -67,7 +67,7 @@ export default function AddReadingScreen({ onSaved }: { onSaved?: () => void }) 
       setNotes("");
       setDateTime(new Date());
       Alert.alert("Guardado", "La lectura se registró correctamente.");
-      runBackgroundEnrichment();
+      runBackgroundTasks();
       onSaved?.();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo guardar la lectura.");

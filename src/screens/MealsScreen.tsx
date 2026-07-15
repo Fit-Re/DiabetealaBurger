@@ -18,7 +18,7 @@ import {
   getMealsSince,
   insertMeal,
 } from "../db/database";
-import { runBackgroundEnrichment } from "../lib/autoEnrich";
+import { runBackgroundTasks } from "../lib/autoEnrich";
 import { parseMealPhoto } from "../lib/anthropic";
 import type { ParsedMeal } from "../lib/anthropic";
 import type { Meal } from "../types";
@@ -180,7 +180,7 @@ export default function MealsScreen() {
       resetForm();
       setShowAddForm(false);
       Alert.alert("Guardado", "La comida se registró correctamente.");
-      runBackgroundEnrichment();
+      runBackgroundTasks();
       load();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo guardar la comida.");

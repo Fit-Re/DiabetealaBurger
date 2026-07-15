@@ -13,7 +13,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { insertReading } from "../db/database";
 import { parseLibreLinkScreenshot } from "../lib/anthropic";
-import { runBackgroundEnrichment } from "../lib/autoEnrich";
+import { runBackgroundTasks } from "../lib/autoEnrich";
 import { parseLibreLinkScreenshotOCR } from "../lib/ocrSpace";
 import type { TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
@@ -166,7 +166,7 @@ export default function ImportScreenshotScreen({
       });
       Alert.alert("Guardado", "La lectura se registró correctamente.");
       resetForm();
-      runBackgroundEnrichment();
+      runBackgroundTasks();
       onSaved?.();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo guardar la lectura.");
