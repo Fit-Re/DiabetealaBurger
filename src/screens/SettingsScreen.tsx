@@ -10,18 +10,13 @@ import {
   Platform,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { synthesizeEvidence } from "../lib/geminiVision";
+import type { EvidenceSynthesis } from "../lib/geminiVision";
 import {
-  clearApiKey,
-  getApiKey,
-  setApiKey,
-  synthesizeEvidence,
-} from "../lib/anthropic";
-import type { EvidenceSynthesis } from "../lib/anthropic";
-import {
-  clearVoyageApiKey,
-  getVoyageApiKey,
-  setVoyageApiKey,
-} from "../lib/voyage";
+  clearGeminiApiKey,
+  getGeminiApiKey,
+  setGeminiApiKey,
+} from "../lib/gemini";
 import {
   getCorpusSize,
   getIngestedCount,
@@ -32,6 +27,7 @@ import type { IngestProgress } from "../lib/knowledgeBase";
 import type { DiabetesType, Hba1cReading, KnowledgeSearchResult } from "../types";
 import { TARGET_RANGE } from "../types";
 import {
+  deleteAllKnowledgeChunks,
   getHba1cReadingsSince,
   getPatientProfile,
   insertHba1cReading,
@@ -645,6 +641,7 @@ function KnowledgeBaseSection() {
   const [ingestedCount, setIngestedCount] = useState(0);
   const corpusSize = getCorpusSize();
   const [syncing, setSyncing] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [progress, setProgress] = useState<IngestProgress | null>(null);
 
   const refreshCount = async () => {
@@ -675,13 +672,50 @@ function KnowledgeBaseSection() {
     }
   };
 
+  const doRebuild = async () => {
+    setRebuilding(true);
+    setProgress(null);
+    try {
+      await deleteAllKnowledgeChunks();
+      await refreshCount();
+      const added = await ingestCorpus((p) => setProgress(p));
+      await refreshCount();
+      Alert.alert(
+        "Base reconstruida",
+        `Se regeneraron ${added} fragmentos con los embeddings de Gemini.`
+      );
+    } catch (e: any) {
+      Alert.alert(
+        "Error",
+        e?.message ??
+          "No se pudo reconstruir la base de conocimiento. Revisa tu API key de Gemini y tu conexión."
+      );
+    } finally {
+      setRebuilding(false);
+      setProgress(null);
+    }
+  };
+
+  const onRebuild = () => {
+    Alert.alert(
+      "Reconstruir base de conocimiento",
+      "Esto borra todos los fragmentos guardados y re-genera sus embeddings con Gemini. Es necesario tras cambiar de proveedor de IA porque los embeddings viejos (de otra dimensión) no son compatibles. Requiere tu API key de Gemini configurada y consume algunas llamadas del tier gratuito. No afecta tus datos de glucosa, comidas ni medicamentos.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Reconstruir", style: "destructive", onPress: doRebuild },
+      ]
+    );
+  };
+
+  const busy = syncing || rebuilding;
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Base de conocimiento clínica</Text>
       <Text style={styles.description}>
         Fragmentos de guías (ADA, ISPAD, ATTD) y papers que la app usa para fundamentar
-        sus sugerencias con evidencia real. Requiere la API key de Voyage AI configurada
-        arriba.
+        sus sugerencias con evidencia real. Requiere la API key de Gemini configurada
+        arriba (gratis) para generar los embeddings.
       </Text>
       <Text style={styles.status}>
         Estado: {ingestedCount} / {corpusSize} fragmentos sincronizados
@@ -692,12 +726,21 @@ function KnowledgeBaseSection() {
         </Text>
       )}
       <Pressable
-        style={[styles.saveButton, syncing && styles.disabled]}
+        style={[styles.saveButton, busy && styles.disabled]}
         onPress={onSync}
-        disabled={syncing}
+        disabled={busy}
       >
         <Text style={styles.saveButtonText}>
           {syncing ? "Sincronizando..." : "Sincronizar base de conocimiento"}
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[styles.clearButton, busy && styles.disabled]}
+        onPress={onRebuild}
+        disabled={busy}
+      >
+        <Text style={styles.clearButtonText}>
+          {rebuilding ? "Reconstruyendo..." : "Reconstruir base de conocimiento"}
         </Text>
       </Pressable>
     </View>
@@ -859,7 +902,7 @@ export default function SettingsScreen() {
 
       <ApiKeySection
         title="API key de OCR.space — lectura gratis de capturas de LibreLink"
-        description="Se usa para autocompletar el valor de glucosa al importar una captura de LibreLink, sin usar créditos de Anthropic. Es gratis: regístrate sin tarjeta en ocr.space/ocrapi/freekey para obtener tu key. Solo lee el número — la flecha de tendencia hay que confirmarla a mano, a diferencia del autocompletado con IA."
+        description="Se usa para autocompletar el valor de glucosa al importar una captura de LibreLink, sin gastar tu cuota de Gemini. Es gratis: regístrate sin tarjeta en ocr.space/ocrapi/freekey para obtener tu key. Solo lee el número — la flecha de tendencia hay que confirmarla a mano, a diferencia del autocompletado con IA."
         placeholder="Tu API key de OCR.space"
         expectedPrefix=""
         getKey={getOcrApiKey}
@@ -868,23 +911,13 @@ export default function SettingsScreen() {
       />
 
       <ApiKeySection
-        title="API key de Anthropic (Claude) — opcional"
-        description="Solo se usa para el autocompletado por IA de capturas de LibreLink, análisis de fotos de comida, y los resúmenes clínicos de evidencia. Todo lo demás de la app funciona sin esta key. Requiere crédito en tu cuenta de Anthropic. Se guarda cifrada en este dispositivo y nunca se comparte."
-        placeholder="sk-ant-..."
-        expectedPrefix="sk-ant-"
-        getKey={getApiKey}
-        saveKey={setApiKey}
-        clearKey={clearApiKey}
-      />
-
-      <ApiKeySection
-        title="API key de Voyage AI (embeddings)"
-        description="Se usa para generar los embeddings de la base de evidencia clínica y así poder buscar los fragmentos más relevantes al dar recomendaciones. Distinta a la de Anthropic. Se guarda cifrada en este dispositivo."
-        placeholder="pa-..."
-        expectedPrefix="pa-"
-        getKey={getVoyageApiKey}
-        saveKey={setVoyageApiKey}
-        clearKey={clearVoyageApiKey}
+        title="API key de Google Gemini — opcional (gratis)"
+        description="Una sola key para toda la IA de la app: autocompletado de capturas de LibreLink, análisis de fotos de comida, embeddings de la base de evidencia y resúmenes clínicos. Gemini tiene tier gratuito sin tarjeta: consíguela en aistudio.google.com/apikey. Todo el núcleo de la app (registro, sync, OCR.space, detección de patrones) funciona sin esta key. Se guarda cifrada en este dispositivo y nunca se comparte."
+        placeholder="AIza..."
+        expectedPrefix="AIza"
+        getKey={getGeminiApiKey}
+        saveKey={setGeminiApiKey}
+        clearKey={clearGeminiApiKey}
       />
 
       <KnowledgeBaseSection />

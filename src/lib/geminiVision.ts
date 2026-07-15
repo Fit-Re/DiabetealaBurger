@@ -1,120 +1,92 @@
-import * as SecureStore from "expo-secure-store";
+// Visión + generación con salida JSON: Google Gemini Flash (tier gratis, sin
+// billing). Reemplaza al proveedor de IA de pago anterior para las tres tareas:
+// lectura de capturas de LibreLink, análisis de fotos de comida y síntesis de
+// evidencia clínica. Documentación de referencia usada:
+//   https://ai.google.dev/api/generate-content
+// Auth: header `x-goog-api-key: <KEY>`. Modelo: gemini-2.5-flash.
+// La API key es la MISMA de embeddings (una sola key de Gemini para toda la app),
+// por eso se reutiliza getGeminiApiKey de ./gemini.
 import type {
   GlucoseUnit,
   KnowledgeSearchResult,
   MealItem,
   TrendArrow,
 } from "../types";
+import { getGeminiApiKey } from "./gemini";
 
-const API_KEY_STORAGE_KEY = "anthropic_api_key";
-const MODEL = "claude-sonnet-5";
+const MODEL = "gemini-2.5-flash";
 
-export async function getApiKey(): Promise<string | null> {
-  return SecureStore.getItemAsync(API_KEY_STORAGE_KEY);
+async function callGemini(
+  parts: any[],
+  responseSchema?: object
+): Promise<string> {
+  const apiKey = await getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "No hay una API key de Gemini configurada. Agrégala en Ajustes."
+    );
+  }
+
+  const body: any = {
+    contents: [{ role: "user", parts }],
+  };
+  if (responseSchema) {
+    body.generationConfig = {
+      responseMimeType: "application/json",
+      responseSchema,
+    };
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Error de Gemini (${response.status}): ${errorText}`);
+  }
+
+  const json = await response.json();
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("La respuesta de la API no contiene texto.");
+  }
+  return text as string;
 }
 
-export async function setApiKey(key: string): Promise<void> {
-  await SecureStore.setItemAsync(API_KEY_STORAGE_KEY, key.trim());
-}
-
-export async function clearApiKey(): Promise<void> {
-  await SecureStore.deleteItemAsync(API_KEY_STORAGE_KEY);
-}
-
-async function callClaudeVision(
+// Visión + JSON estructurado: envía la imagen inline y pide salida conforme a un
+// responseSchema (JSON Schema estándar).
+async function callGeminiVisionJson(
   base64Image: string,
-  mediaType: string,
+  mimeType: string,
   promptText: string,
-  maxTokens: number
-): Promise<string> {
-  const apiKey = await getApiKey();
-  if (!apiKey) {
-    throw new Error(
-      "No hay una API key de Anthropic configurada. Agrégala en Ajustes."
-    );
-  }
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mediaType,
-                data: base64Image,
-              },
-            },
-            {
-              type: "text",
-              text: promptText,
-            },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Error de Anthropic API (${response.status}): ${errorText}`);
-  }
-
-  const json = await response.json();
-  const textBlock = json.content?.find((c: any) => c.type === "text");
-  if (!textBlock?.text) {
-    throw new Error("La respuesta de la API no contiene texto.");
-  }
-  return textBlock.text as string;
+  responseSchema: object
+): Promise<any> {
+  const text = await callGemini(
+    [
+      { text: promptText },
+      { inline_data: { mime_type: mimeType, data: base64Image } },
+    ],
+    responseSchema
+  );
+  return extractJson(text);
 }
 
-async function callClaudeText(
+// Texto + JSON estructurado (sin imagen).
+async function callGeminiTextJson(
   promptText: string,
-  maxTokens: number
-): Promise<string> {
-  const apiKey = await getApiKey();
-  if (!apiKey) {
-    throw new Error(
-      "No hay una API key de Anthropic configurada. Agrégala en Ajustes."
-    );
-  }
-
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content: promptText }],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Error de Anthropic API (${response.status}): ${errorText}`);
-  }
-
-  const json = await response.json();
-  const textBlock = json.content?.find((c: any) => c.type === "text");
-  if (!textBlock?.text) {
-    throw new Error("La respuesta de la API no contiene texto.");
-  }
-  return textBlock.text as string;
+  responseSchema: object
+): Promise<any> {
+  const text = await callGemini([{ text: promptText }], responseSchema);
+  return extractJson(text);
 }
 
 function extractJson(text: string): any {
@@ -156,6 +128,23 @@ Reglas:
 - Si no puedes determinar algo con certeza, usa null en ese campo y baja el "confidence".
 - No inventes valores. Responde solo con el JSON.`;
 
+const LIBRELINK_SCHEMA = {
+  type: "object",
+  properties: {
+    value: { type: "number" },
+    unit: { type: "string", enum: ["mg/dL", "mmol/L"] },
+    trend: {
+      type: "string",
+      enum: ["rising_fast", "rising", "steady", "falling", "falling_fast"],
+      nullable: true,
+    },
+    time: { type: "string", nullable: true },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    rawNote: { type: "string", nullable: true },
+  },
+  required: ["value", "unit", "confidence"],
+};
+
 function combineTimeWithToday(time: string | null): number | null {
   if (!time) return null;
   const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
@@ -182,8 +171,12 @@ export async function parseLibreLinkScreenshot(
   base64Image: string,
   mediaType: string = "image/jpeg"
 ): Promise<ParsedLibreLinkReading> {
-  const text = await callClaudeVision(base64Image, mediaType, EXTRACTION_PROMPT, 512);
-  const parsed = extractJson(text);
+  const parsed = await callGeminiVisionJson(
+    base64Image,
+    mediaType,
+    EXTRACTION_PROMPT,
+    LIBRELINK_SCHEMA
+  );
 
   if (typeof parsed.value !== "number") {
     throw new Error("La IA no pudo identificar un valor de glucosa en la imagen.");
@@ -267,6 +260,37 @@ Reglas:
 ${context}`;
 }
 
+const MEAL_ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    name: { type: "string" },
+    portionEstimate: { type: "string", nullable: true },
+    calories: { type: "number", nullable: true },
+    carbsG: { type: "number", nullable: true },
+    sugarG: { type: "number", nullable: true },
+    proteinG: { type: "number", nullable: true },
+    fatG: { type: "number", nullable: true },
+  },
+  required: ["name"],
+};
+
+const MEAL_SCHEMA = {
+  type: "object",
+  properties: {
+    items: { type: "array", items: MEAL_ITEM_SCHEMA },
+    calories: { type: "number", nullable: true },
+    carbsG: { type: "number", nullable: true },
+    sugarG: { type: "number", nullable: true },
+    proteinG: { type: "number", nullable: true },
+    fatG: { type: "number", nullable: true },
+    portionEstimate: { type: "string", nullable: true },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    clarifyingQuestions: { type: "array", items: { type: "string" } },
+    aiNotes: { type: "string", nullable: true },
+  },
+  required: ["items"],
+};
+
 export async function parseMealPhoto(
   base64Image: string,
   mediaType: string = "image/jpeg",
@@ -274,8 +298,12 @@ export async function parseMealPhoto(
   clarifications: ClarificationAnswer[] = []
 ): Promise<ParsedMeal> {
   const prompt = buildMealPrompt(additionalContext, clarifications);
-  const text = await callClaudeVision(base64Image, mediaType, prompt, 1024);
-  const parsed = extractJson(text);
+  const parsed = await callGeminiVisionJson(
+    base64Image,
+    mediaType,
+    prompt,
+    MEAL_SCHEMA
+  );
 
   if (!Array.isArray(parsed.items)) {
     throw new Error("La IA no pudo identificar alimentos en la imagen.");
@@ -349,6 +377,18 @@ Reglas estrictas:
 - Responde en español, de forma clara y directa, sin jerga innecesaria.`;
 }
 
+const EVIDENCE_SCHEMA = {
+  type: "object",
+  properties: {
+    etiology: { type: "string" },
+    management: { type: "string" },
+    likelyOutcome: { type: "string" },
+    evidenceStrength: { type: "string", enum: ["strong", "moderate", "limited"] },
+    caveats: { type: "string", nullable: true },
+  },
+  required: ["etiology", "management", "likelyOutcome", "evidenceStrength"],
+};
+
 export async function synthesizeEvidence(
   query: string,
   chunks: KnowledgeSearchResult[]
@@ -357,8 +397,7 @@ export async function synthesizeEvidence(
     throw new Error("No hay fragmentos de evidencia para sintetizar.");
   }
   const prompt = buildEvidenceSynthesisPrompt(query, chunks);
-  const text = await callClaudeText(prompt, 1024);
-  const parsed = extractJson(text);
+  const parsed = await callGeminiTextJson(prompt, EVIDENCE_SCHEMA);
 
   return {
     etiology: String(parsed.etiology ?? ""),

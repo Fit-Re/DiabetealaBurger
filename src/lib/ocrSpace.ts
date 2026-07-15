@@ -3,12 +3,11 @@ import type { TrendArrow } from "../types";
 
 // Cliente para OCR.space (https://ocr.space/ocrapi) — API de OCR gratuita
 // (tier gratis: 25,000 peticiones/mes, sin tarjeta de crédito, solo registro
-// por email en ocr.space/ocrapi/freekey). Alternativa sin costo a la
-// extracción con Claude Vision para leer capturas de LibreLink: no
-// "entiende" la imagen como una IA de visión, solo lee texto — así que la
-// flecha de tendencia (es un ícono, no texto) no se detecta y hay que
-// confirmarla a mano, pero el valor numérico y la hora sí se extraen solos,
-// sin gastar créditos de Anthropic.
+// por email en ocr.space/ocrapi/freekey). Alternativa para leer capturas de
+// LibreLink sin usar la IA de visión (Gemini): no "entiende" la imagen como
+// una IA de visión, solo lee texto — así que la flecha de tendencia (es un
+// ícono, no texto) no se detecta y hay que confirmarla a mano, pero el valor
+// numérico y la hora sí se extraen solos.
 //
 // Heurística: LibreLink muestra el valor de glucosa como el número más
 // grande y prominente en pantalla. Pedimos el overlay de texto (con alto de

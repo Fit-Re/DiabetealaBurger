@@ -8,7 +8,7 @@ import {
 } from "../db/database";
 import { detectPatterns } from "./patterns";
 import { searchKnowledge } from "./knowledgeBase";
-import { getVoyageApiKey } from "./voyage";
+import { getEmbeddingApiKey } from "./gemini";
 import { TARGET_RANGE } from "../types";
 import type { PatternFinding } from "../types";
 
@@ -60,7 +60,7 @@ export async function runBackgroundEnrichment(
   patterns: PatternFinding[]
 ): Promise<void> {
   try {
-    const key = await getVoyageApiKey();
+    const key = await getEmbeddingApiKey();
     if (!key) return;
 
     for (const pattern of patterns.slice(0, MAX_PATTERNS_TO_ENRICH)) {

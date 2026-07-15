@@ -324,13 +324,27 @@ Actualizar los 3 llamadores (`AddReadingScreen.tsx:70`, `MealsScreen.tsx:183`, y
 
 **Decisión del usuario (2026-07-15)**: la app debe funcionar gratis. Se reemplaza Voyage AI (embeddings, de pago) y Anthropic Claude (visión + síntesis, de pago) por Google Gemini, que ofrece tier gratuito sin billing para embeddings y generación (Flash), ambos con visión y salida JSON.
 
-> ⚠️ **VERIFICACIÓN OBLIGATORIA ANTES DE CODIFICAR** (no se pudo confirmar en vivo en la sesión de planificación por límite del buscador). El implementador DEBE abrir y leer estas páginas antes de escribir código, y ajustar nombres de modelo / endpoints / campos a lo que digan:
-> - Embeddings: https://ai.google.dev/gemini-api/docs/embeddings
-> - Generación + visión: https://ai.google.dev/gemini-api/docs/text-generation y https://ai.google.dev/gemini-api/docs/vision
-> - Salida estructurada JSON: https://ai.google.dev/gemini-api/docs/structured-output
-> - Límites del tier gratis: https://ai.google.dev/gemini-api/docs/rate-limits
+> ✅ **API DE GEMINI VERIFICADA** contra la doc oficial (2026-07-15, cross-check con la referencia REST canónica `https://ai.google.dev/api/generate-content` — se descartaron formas alucinadas por el resumidor de fetch). Hechos confirmados:
 >
-> Valores esperados **a confirmar** (conocimiento previo, no verificado esta sesión): modelo de embeddings `gemini-embedding-001` con `outputDimensionality` configurable (Matryoshka); modelo de generación/visión `gemini-2.5-flash` (o `gemini-2.0-flash`); base del endpoint `https://generativelanguage.googleapis.com/v1beta/models/<model>:<method>`; auth por header `x-goog-api-key: <KEY>` o query `?key=<KEY>`; visión vía `inline_data` (base64); JSON vía `responseMimeType: "application/json"` + `responseSchema`.
+> **Auth**: header `x-goog-api-key: <KEY>` en todas las llamadas.
+>
+> **Embeddings** — modelo `gemini-embedding-001` (texto, soporta `task_type`):
+> - Endpoint: `POST https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent`
+> - Batch: `:batchEmbedContents` con `{"requests": [{"model":"models/gemini-embedding-001","content":{"parts":[{"text":"..."}]}, "taskType":"RETRIEVAL_DOCUMENT", "outputDimensionality":768}, ...]}`
+> - Body single: `{"content":{"parts":[{"text":"..."}]}, "taskType":"RETRIEVAL_QUERY", "outputDimensionality":768}`
+> - `task_type` válidos: `RETRIEVAL_DOCUMENT` (para "document"), `RETRIEVAL_QUERY` (para "query"), etc.
+> - `output_dimensionality`/`outputDimensionality`: flexible 128–3072, recomendados 768/1536/3072. **Fijar 768.**
+> - Respuesta single: `{"embedding":{"values":[...]}}`; batch: `{"embeddings":[{"values":[...]}, ...]}`.
+>
+> **Generación + visión + JSON** — modelo `gemini-2.5-flash` (estable, visión, free tier; `gemini-3.5-flash` es el más nuevo recomendado si se quiere más calidad):
+> - Endpoint: `POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`
+> - Body: `{"contents":[{"role":"user","parts":[{"text":"..."}, {"inline_data":{"mime_type":"image/jpeg","data":"<base64>"}}]}], "generationConfig":{"responseMimeType":"application/json","responseSchema":{...}}}`
+> - `responseSchema` usa JSON Schema estándar (`type`/`properties`/`required`/`enum`/`items`).
+> - Respuesta: texto en `candidates[0].content.parts[0].text` (parsear como JSON cuando se pidió `application/json`).
+>
+> **Free tier**: no requiere billing. Límites RPM/RPD exactos solo visibles en AI Studio (no en la doc pública) — asumir límites conservadores y no paralelizar en exceso.
+>
+> El implementador DEBE citar la URL de doc en un comentario de cabecera de `gemini.ts`, como exige `AGENTS.md`.
 
 ### 2.1 Riesgo técnico central: incompatibilidad de embeddings existentes
 

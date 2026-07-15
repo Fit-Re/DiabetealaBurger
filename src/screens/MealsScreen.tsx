@@ -19,8 +19,8 @@ import {
   insertMeal,
 } from "../db/database";
 import { runBackgroundTasks } from "../lib/autoEnrich";
-import { parseMealPhoto } from "../lib/anthropic";
-import type { ParsedMeal } from "../lib/anthropic";
+import { parseMealPhoto } from "../lib/geminiVision";
+import type { ParsedMeal } from "../lib/geminiVision";
 import type { Meal } from "../types";
 
 function startOfTodayMs(): number {
@@ -248,7 +248,7 @@ export default function MealsScreen() {
         <View style={styles.formBox}>
           <Text style={styles.formHint}>
             Escribe tú mismo las calorías/carbohidratos (gratis, sin IA), o toma/elige una
-            foto y usa el análisis automático si tienes crédito de Anthropic configurado.
+            foto y usa el análisis automático si tienes tu API key de Gemini configurada.
           </Text>
 
           <View style={styles.row}>

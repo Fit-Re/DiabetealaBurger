@@ -7,7 +7,7 @@ import {
 import { KNOWLEDGE_CORPUS } from "../data/knowledgeCorpus";
 import { searchPubMedLive } from "./pubmed";
 import type { KnowledgeSearchResult } from "../types";
-import { cosineSimilarity, embedTexts } from "./voyage";
+import { cosineSimilarity, embedTexts } from "./gemini";
 
 const BATCH_SIZE = 10;
 const LIVE_FALLBACK_SCORE_THRESHOLD = 0.55;

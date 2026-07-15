@@ -440,6 +440,16 @@ export async function clearKnowledgeChunks(): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// Borra TODOS los chunks de la biblioteca de evidencia (curados y de PubMed en
+// vivo). Necesario al migrar de proveedor de embeddings: los vectores viejos
+// (1024-dim) no son comparables con los de Gemini (768-dim), así que hay que
+// purgar y re-ingerir. NO toca datos clínicos del paciente. El filtro
+// `neq("id", 0)` borra todas las filas (la PK identity nunca es 0).
+export async function deleteAllKnowledgeChunks(): Promise<void> {
+  const { error } = await supabase.from("knowledge_chunks").delete().neq("id", 0);
+  if (error) throw new Error(error.message);
+}
+
 export async function upsertLifestyleMetric(
   metric: NewLifestyleMetric
 ): Promise<void> {

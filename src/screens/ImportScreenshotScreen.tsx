@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { insertReading } from "../db/database";
-import { parseLibreLinkScreenshot } from "../lib/anthropic";
+import { parseLibreLinkScreenshot } from "../lib/geminiVision";
 import { runBackgroundTasks } from "../lib/autoEnrich";
 import { parseLibreLinkScreenshotOCR } from "../lib/ocrSpace";
 import type { TrendArrow } from "../types";
@@ -181,7 +181,7 @@ export default function ImportScreenshotScreen({
       <Text style={styles.hint}>
         Puedes escribir el valor tú mismo viendo la captura (gratis), autocompletarlo con OCR
         (también gratis, lee el número pero no la flecha de tendencia), o con IA si tienes
-        crédito de Anthropic configurado (más preciso, también detecta la tendencia).
+        tu API key de Gemini configurada (gratis, más preciso, también detecta la tendencia).
       </Text>
 
       <Pressable style={styles.pickButton} onPress={pickImage}>

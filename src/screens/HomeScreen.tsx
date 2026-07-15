@@ -26,8 +26,8 @@ import {
 import { addDays, isSameDay, startOfDay } from "../lib/dateTimeUtils";
 import { detectPatterns } from "../lib/patterns";
 import { searchKnowledge } from "../lib/knowledgeBase";
-import { synthesizeEvidence } from "../lib/anthropic";
-import type { EvidenceSynthesis } from "../lib/anthropic";
+import { synthesizeEvidence } from "../lib/geminiVision";
+import type { EvidenceSynthesis } from "../lib/geminiVision";
 import type {
   GlucoseReading,
   KnowledgeSearchResult,
