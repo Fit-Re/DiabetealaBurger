@@ -189,6 +189,40 @@ export interface KnowledgeSearchResult extends KnowledgeChunk {
   score: number;
 }
 
+export type LifestyleSource = "ultrahuman";
+
+export interface LifestyleMetric {
+  id: number;
+  dateKey: string;
+  dateMs: number;
+  source: LifestyleSource;
+  sleepScore: number | null;
+  sleepDurationMin: number | null;
+  hrvMs: number | null;
+  restingHeartRate: number | null;
+  recoveryIndex: number | null;
+  tempDeviationC: number | null;
+  steps: number | null;
+  vo2Max: number | null;
+  raw: string | null;
+  createdAtMs: number;
+}
+
+export interface NewLifestyleMetric {
+  dateKey: string;
+  dateMs: number;
+  source: LifestyleSource;
+  sleepScore: number | null;
+  sleepDurationMin: number | null;
+  hrvMs: number | null;
+  restingHeartRate: number | null;
+  recoveryIndex: number | null;
+  tempDeviationC: number | null;
+  steps: number | null;
+  vo2Max: number | null;
+  raw: string | null;
+}
+
 export type PatternSeverity = "info" | "watch" | "attention";
 
 export interface PatternFinding {

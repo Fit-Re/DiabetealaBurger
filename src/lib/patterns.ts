@@ -1,5 +1,6 @@
 import type {
   GlucoseReading,
+  LifestyleMetric,
   Meal,
   Medication,
   MedicationLog,
@@ -26,6 +27,11 @@ const LOW_TIME_THRESHOLD_PCT = 4; // consenso ATTD/Battelino: <4% tiempo bajo ra
 const TIR_TARGET_PCT = 70; // consenso ATTD/Battelino: >=70% tiempo en rango
 const MEDICATION_ADHERENCE_WINDOW_DAYS = 7;
 const MEDICATION_ADHERENCE_THRESHOLD = 0.7;
+
+const MIN_READINGS_PER_DAY_FOR_CORRELATION = 4;
+const MIN_LIFESTYLE_DAYS_FOR_CORRELATION = 6;
+const MIN_GROUP_DAYS_FOR_CORRELATION = 2;
+const LIFESTYLE_TIR_DIFFERENCE_THRESHOLD_PCT = 10;
 
 function hourOf(timestampMs: number): number {
   return new Date(timestampMs).getHours();
@@ -205,18 +211,115 @@ function detectMedicationAdherence(
   };
 }
 
+interface LifestyleDayGlucose {
+  metricValue: number;
+  tirPct: number;
+}
+
+// Ultrahuman etiqueta el día D con la sesión de sueño que termina esa mañana,
+// así que se correlaciona con la glucosa del mismo día calendario D (no del
+// día siguiente).
+function buildDailyLifestyleGlucose(
+  readings: GlucoseReading[],
+  lifestyleMetrics: LifestyleMetric[],
+  metricKey: "sleepScore" | "hrvMs"
+): LifestyleDayGlucose[] {
+  const byDay = new Map<string, GlucoseReading[]>();
+  for (const r of readings) {
+    const key = dayKeyOf(r.timestampMs);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key)!.push(r);
+  }
+
+  const result: LifestyleDayGlucose[] = [];
+  for (const m of lifestyleMetrics) {
+    const value = m[metricKey];
+    if (typeof value !== "number") continue;
+    const dayReadings = byDay.get(dayKeyOf(m.dateMs));
+    if (!dayReadings || dayReadings.length < MIN_READINGS_PER_DAY_FOR_CORRELATION) continue;
+    const inRangeCount = dayReadings.filter(
+      (r) => r.value >= TARGET_RANGE.low && r.value <= TARGET_RANGE.high
+    ).length;
+    result.push({
+      metricValue: value,
+      tirPct: (inRangeCount / dayReadings.length) * 100,
+    });
+  }
+  return result;
+}
+
+function average(values: number[]): number {
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function detectLifestyleCorrelation(
+  days: LifestyleDayGlucose[],
+  id: string,
+  title: string,
+  lowLabel: string,
+  highLabel: string,
+  suggestedQuery: string
+): PatternFinding | null {
+  if (days.length < MIN_LIFESTYLE_DAYS_FOR_CORRELATION) return null;
+
+  const sorted = [...days].sort((a, b) => a.metricValue - b.metricValue);
+  const groupSize = Math.floor(sorted.length / 2);
+  const lowGroup = sorted.slice(0, groupSize);
+  const highGroup = sorted.slice(sorted.length - groupSize);
+  if (
+    lowGroup.length < MIN_GROUP_DAYS_FOR_CORRELATION ||
+    highGroup.length < MIN_GROUP_DAYS_FOR_CORRELATION
+  ) {
+    return null;
+  }
+
+  const avgTirLow = average(lowGroup.map((d) => d.tirPct));
+  const avgTirHigh = average(highGroup.map((d) => d.tirPct));
+  const diff = avgTirHigh - avgTirLow;
+  if (diff < LIFESTYLE_TIR_DIFFERENCE_THRESHOLD_PCT) return null;
+
+  return {
+    id,
+    title,
+    description: `En días con ${lowLabel}, tu tiempo en rango promedió ${avgTirLow.toFixed(0)}%, comparado con ${avgTirHigh.toFixed(0)}% en días con ${highLabel} (${days.length} días con datos de Ultrahuman analizados).`,
+    severity: "watch",
+    suggestedQuery,
+    evidenceCount: days.length,
+  };
+}
+
 export function detectPatterns(
   readings: GlucoseReading[],
   meals: Meal[],
   medications: Medication[],
-  medicationLogs: MedicationLog[]
+  medicationLogs: MedicationLog[],
+  lifestyleMetrics: LifestyleMetric[] = []
 ): PatternFinding[] {
+  const sleepDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "sleepScore");
+  const hrvDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "hrvMs");
+
   const findings = [
     detectLowTimeInRange(readings),
     detectNocturnalHypoglycemia(readings),
     detectDawnPhenomenon(readings),
     detectPostMealHyperglycemia(readings, meals),
     detectMedicationAdherence(medications, medicationLogs),
+    detectLifestyleCorrelation(
+      sleepDays,
+      "sleep_quality_glucose",
+      "Sueño de baja calidad y tiempo en rango",
+      "menor puntaje de sueño (Ultrahuman)",
+      "mayor puntaje de sueño",
+      "calidad del sueño y control glucémico en diabetes tipo 1"
+    ),
+    detectLifestyleCorrelation(
+      hrvDays,
+      "hrv_glucose",
+      "Variabilidad cardíaca baja y tiempo en rango",
+      "HRV más baja (posible estrés/fatiga)",
+      "HRV más alta",
+      "variabilidad de frecuencia cardíaca (HRV) y control glucémico en diabetes tipo 1"
+    ),
   ].filter((f): f is PatternFinding => f !== null);
 
   const severityOrder: Record<PatternFinding["severity"], number> = {

@@ -34,6 +34,14 @@ import {
   setStoredCredentials as setLibreLinkUpCredentials,
   syncLibreLinkUp,
 } from "../lib/librelinkup";
+import {
+  clearStoredCredentials as clearUltrahumanCredentials,
+  getStoredCredentials as getUltrahumanCredentials,
+  setStoredCredentials as setUltrahumanCredentials,
+  syncUltrahuman,
+} from "../lib/ultrahuman";
+import { clearOcrApiKey, getOcrApiKey, setOcrApiKey } from "../lib/ocrSpace";
+import { useAuth } from "../lib/auth";
 
 interface ApiKeySectionProps {
   title: string;
@@ -236,6 +244,108 @@ function LibreLinkUpSection() {
   );
 }
 
+function UltrahumanSection() {
+  const [token, setToken] = useState("");
+  const [hasStoredCreds, setHasStoredCreds] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    getUltrahumanCredentials().then((creds) => setHasStoredCreds(!!creds));
+  }, []);
+
+  const onSaveCredentials = async () => {
+    if (!token.trim()) {
+      Alert.alert("Falta el token", "Ingresa tu Personal API Token de Ultrahuman.");
+      return;
+    }
+    await setUltrahumanCredentials(token);
+    setHasStoredCreds(true);
+    setToken("");
+    Alert.alert("Guardado", "Tu token de Ultrahuman se guardó cifrado en este dispositivo.");
+  };
+
+  const onClearCredentials = () => {
+    Alert.alert("Eliminar credenciales", "¿Seguro que quieres eliminarlas?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: async () => {
+          await clearUltrahumanCredentials();
+          setHasStoredCreds(false);
+          setLastResult(null);
+        },
+      },
+    ]);
+  };
+
+  const onSync = async () => {
+    setSyncing(true);
+    setLastResult(null);
+    try {
+      const result = await syncUltrahuman(7);
+      const errorsSuffix = result.errors.length
+        ? ` Errores: ${result.errors.join(" | ")}`
+        : "";
+      setLastResult(
+        `${result.daysImported} de ${result.daysAttempted} días importados.${errorsSuffix}`
+      );
+    } catch (e: any) {
+      Alert.alert("Error al sincronizar", e?.message ?? "No se pudo sincronizar con Ultrahuman.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Ultrahuman — sueño, HRV y recuperación (opcional)</Text>
+      <Text style={styles.description}>
+        Usa el Personal API Token que generás en vision.ultrahuman.com/developer (iniciando
+        sesión con tu cuenta Ultrahuman) para traer tus datos de sueño, HRV, frecuencia cardíaca
+        en reposo y recuperación. No mandes tu email de cuenta acá — el token ya está atado a tu
+        cuenta y agregar el email hace que la API lo trate como acceso a otra cuenta, que
+        rechazaría con error 401. No usa créditos de Anthropic ni de Voyage.
+      </Text>
+      <Text style={styles.status}>
+        Token: {hasStoredCreds ? "✅ Guardado" : "⚠️ No configurado"}
+      </Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Personal API Token de Ultrahuman"
+        value={token}
+        onChangeText={setToken}
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry
+      />
+      <Pressable style={styles.saveButton} onPress={onSaveCredentials}>
+        <Text style={styles.saveButtonText}>Guardar credenciales</Text>
+      </Pressable>
+
+      {hasStoredCreds && (
+        <>
+          <Pressable
+            style={[styles.synthesizeButton, syncing && styles.disabled]}
+            onPress={onSync}
+            disabled={syncing}
+          >
+            <Text style={styles.saveButtonText}>
+              {syncing ? "Sincronizando..." : "Sincronizar últimos 7 días"}
+            </Text>
+          </Pressable>
+          {lastResult && <Text style={styles.status}>{lastResult}</Text>}
+          <Pressable style={styles.clearButton} onPress={onClearCredentials}>
+            <Text style={styles.clearButtonText}>Eliminar credenciales guardadas</Text>
+          </Pressable>
+        </>
+      )}
+    </View>
+  );
+}
+
 function KnowledgeBaseSection() {
   const [ingestedCount, setIngestedCount] = useState(0);
   const corpusSize = getCorpusSize();
@@ -420,12 +530,47 @@ function KnowledgeSearchTestSection() {
   );
 }
 
+function AccountSection() {
+  const { session, signOut } = useAuth();
+
+  const onSignOut = () => {
+    Alert.alert("Cerrar sesión", "¿Seguro que quieres cerrar sesión?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Cerrar sesión", style: "destructive", onPress: signOut },
+    ]);
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Cuenta</Text>
+      <Text style={styles.description}>Sesión iniciada como {session?.user.email}</Text>
+      <Pressable style={styles.clearButton} onPress={onSignOut}>
+        <Text style={styles.clearButtonText}>Cerrar sesión</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Ajustes</Text>
 
+      <AccountSection />
+
       <LibreLinkUpSection />
+
+      <UltrahumanSection />
+
+      <ApiKeySection
+        title="API key de OCR.space — lectura gratis de capturas de LibreLink"
+        description="Se usa para autocompletar el valor de glucosa al importar una captura de LibreLink, sin usar créditos de Anthropic. Es gratis: regístrate sin tarjeta en ocr.space/ocrapi/freekey para obtener tu key. Solo lee el número — la flecha de tendencia hay que confirmarla a mano, a diferencia del autocompletado con IA."
+        placeholder="Tu API key de OCR.space"
+        expectedPrefix=""
+        getKey={getOcrApiKey}
+        saveKey={setOcrApiKey}
+        clearKey={clearOcrApiKey}
+      />
 
       <ApiKeySection
         title="API key de Anthropic (Claude) — opcional"

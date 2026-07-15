@@ -13,6 +13,8 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { insertReading } from "../db/database";
 import { parseLibreLinkScreenshot } from "../lib/anthropic";
+import { runBackgroundEnrichment } from "../lib/autoEnrich";
+import { parseLibreLinkScreenshotOCR } from "../lib/ocrSpace";
 import type { TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
 
@@ -59,6 +61,7 @@ export default function ImportScreenshotScreen({
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzingOcr, setAnalyzingOcr] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confidence, setConfidence] = useState<string | null>(null);
 
@@ -109,6 +112,31 @@ export default function ImportScreenshotScreen({
     }
   };
 
+  const analyzeOcr = async () => {
+    if (!base64) return;
+    setAnalyzingOcr(true);
+    try {
+      const result = await parseLibreLinkScreenshotOCR(base64);
+      setValue(String(result.value));
+      setTrend(result.trend);
+      if (result.timestampMs) {
+        const d = new Date(result.timestampMs);
+        setTimeInput(
+          `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+        );
+      }
+      if (result.rawNote) setNotes(result.rawNote);
+      setConfidence(result.confidence);
+    } catch (e: any) {
+      Alert.alert(
+        "No se pudo leer con OCR",
+        `${e?.message ?? "Error desconocido."}\n\nPuedes seguir capturando el valor manualmente abajo.`
+      );
+    } finally {
+      setAnalyzingOcr(false);
+    }
+  };
+
   const resetForm = () => {
     setImageUri(null);
     setBase64(null);
@@ -138,6 +166,7 @@ export default function ImportScreenshotScreen({
       });
       Alert.alert("Guardado", "La lectura se registró correctamente.");
       resetForm();
+      runBackgroundEnrichment();
       onSaved?.();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo guardar la lectura.");
@@ -150,8 +179,9 @@ export default function ImportScreenshotScreen({
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Importar captura de LibreLink</Text>
       <Text style={styles.hint}>
-        Puedes escribir el valor tú mismo viendo la captura (gratis, sin IA), o usar el
-        análisis automático si tienes crédito de Anthropic configurado.
+        Puedes escribir el valor tú mismo viendo la captura (gratis), autocompletarlo con OCR
+        (también gratis, lee el número pero no la flecha de tendencia), o con IA si tienes
+        crédito de Anthropic configurado (más preciso, también detecta la tendencia).
       </Text>
 
       <Pressable style={styles.pickButton} onPress={pickImage}>
@@ -164,9 +194,20 @@ export default function ImportScreenshotScreen({
         <>
           <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="contain" />
           <Pressable
+            style={[styles.ocrButton, analyzingOcr && styles.disabled]}
+            onPress={analyzeOcr}
+            disabled={analyzingOcr || analyzing}
+          >
+            {analyzingOcr ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.analyzeButtonText}>Autocompletar con OCR (gratis)</Text>
+            )}
+          </Pressable>
+          <Pressable
             style={[styles.analyzeButton, analyzing && styles.disabled]}
             onPress={analyze}
-            disabled={analyzing}
+            disabled={analyzing || analyzingOcr}
           >
             {analyzing ? (
               <ActivityIndicator color="#fff" />
@@ -268,6 +309,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   analyzeButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  ocrButton: {
+    backgroundColor: "#059669",
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+    marginTop: 12,
+  },
   disabled: { opacity: 0.6 },
   formBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginTop: 16 },
   confidenceText: {

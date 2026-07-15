@@ -16,13 +16,18 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite",
       "expo-secure-store",
       "expo-notifications",
       [
@@ -36,7 +41,20 @@
         {
           "photosPermission": "Permite el acceso a tus fotos para importar capturas de LibreLink y fotos de comida."
         }
-      ]
-    ]
+      ],
+      "@react-native-community/datetimepicker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ca11d7be-bce0-4ccb-baf8-76de6c042713"
+      }
+    },
+    "owner": "diabetealaburger",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ca11d7be-bce0-4ccb-baf8-76de6c042713"
+    }
   }
 }

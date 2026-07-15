@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,8 +7,10 @@ import {
   Pressable,
   ScrollView,
   Alert,
+  Platform,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   deleteMedication,
   getActiveMedications,
@@ -17,12 +19,20 @@ import {
   insertMedicationLog,
   updateMedicationNotificationIds,
 } from "../db/database";
+import { runBackgroundEnrichment } from "../lib/autoEnrich";
 import {
   cancelNotifications,
   scheduleMedicationReminders,
 } from "../lib/notifications";
-import type { Medication, MedicationLog, MedicationType } from "../types";
+import type { Medication, MedicationLog, MedicationType, KnowledgeSearchResult } from "../types";
 import { MEDICATION_TYPE_LABELS } from "../types";
+import { mergeDatePart, mergeTimePart, formatDate, formatTime } from "../lib/dateTimeUtils";
+import {
+  findInteractionNotes,
+  findMedicationReference,
+  searchMedicationReference,
+} from "../data/medicationReference";
+import { searchKnowledge } from "../lib/knowledgeBase";
 
 const TYPE_OPTIONS: MedicationType[] = [
   "insulin_basal",
@@ -50,6 +60,26 @@ export default function MedicationsScreen() {
   const [timeInput, setTimeInput] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const [loggingMedication, setLoggingMedication] = useState<Medication | null>(null);
+  const [logDoseAmount, setLogDoseAmount] = useState("");
+  const [logDateTime, setLogDateTime] = useState(() => new Date());
+  const [logPickerMode, setLogPickerMode] = useState<"date" | "time" | null>(null);
+  const [loggingSaving, setLoggingSaving] = useState(false);
+
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceResults, setEvidenceResults] = useState<KnowledgeSearchResult[] | null>(null);
+
+  const nameSuggestions = useMemo(
+    () => (showNameSuggestions ? searchMedicationReference(name) : []),
+    [name, showNameSuggestions]
+  );
+  const matchedReference = useMemo(() => findMedicationReference(name), [name]);
+  const interactionNotes = useMemo(
+    () => findInteractionNotes(medications.map((m) => m.type)),
+    [medications]
+  );
 
   const load = useCallback(async () => {
     const [meds, logs] = await Promise.all([
@@ -97,6 +127,33 @@ export default function MedicationsScreen() {
     setScheduleTimes([]);
     setTimeInput("");
     setNotes("");
+    setShowNameSuggestions(false);
+    setEvidenceResults(null);
+  };
+
+  const onSelectSuggestion = (slug: string) => {
+    const entry = searchMedicationReference(name).find((e) => e.slug === slug);
+    if (!entry) return;
+    setName(entry.names[0]);
+    setType(entry.type);
+    setShowNameSuggestions(false);
+  };
+
+  const onSearchEvidence = async () => {
+    if (!matchedReference) return;
+    setEvidenceLoading(true);
+    setEvidenceResults(null);
+    try {
+      const results = await searchKnowledge(
+        `${matchedReference.names[0]} diabetes tipo 1`,
+        { topK: 3 }
+      );
+      setEvidenceResults(results);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo buscar evidencia relacionada.");
+    } finally {
+      setEvidenceLoading(false);
+    }
   };
 
   const onSaveMedication = async () => {
@@ -104,6 +161,23 @@ export default function MedicationsScreen() {
       Alert.alert("Falta el nombre", "Ingresa el nombre del medicamento.");
       return;
     }
+    const doseNumeric = doseAmount ? Number(doseAmount.replace(",", ".")) : null;
+    const ceiling = matchedReference?.doseCeiling;
+    if (ceiling && doseNumeric && doseNumeric > ceiling.amount) {
+      Alert.alert(
+        "Dosis fuera de lo habitual",
+        `${ceiling.amount} ${ceiling.unit} es el ${ceiling.note}. Ingresaste ${doseNumeric}. Esto es solo un recordatorio para que lo confirmes con tu equipo médico — puedes guardarlo igual si es correcto.`,
+        [
+          { text: "Revisar de nuevo", style: "cancel" },
+          { text: "Guardar de todas formas", onPress: saveMedication },
+        ]
+      );
+      return;
+    }
+    await saveMedication();
+  };
+
+  const saveMedication = async () => {
     setSaving(true);
     try {
       const doseNumeric = doseAmount ? Number(doseAmount.replace(",", ".")) : null;
@@ -140,25 +214,52 @@ export default function MedicationsScreen() {
   };
 
   const onLogDose = (medication: Medication) => {
-    Alert.alert(
-      "Registrar toma",
-      `¿Registrar toma de ${medication.name} ahora?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Registrar",
-          onPress: async () => {
-            await insertMedicationLog({
-              medicationId: medication.id,
-              takenAtMs: Date.now(),
-              doseAmount: medication.doseAmount,
-              notes: null,
-            });
-            load();
-          },
-        },
-      ]
+    setLoggingMedication(medication);
+    setLogDoseAmount(medication.doseAmount != null ? String(medication.doseAmount) : "");
+    setLogDateTime(new Date());
+    setLogPickerMode(null);
+  };
+
+  const onCancelLog = () => {
+    setLoggingMedication(null);
+    setLogPickerMode(null);
+  };
+
+  const onLogPickerChange = (event: { type: string }, selected?: Date) => {
+    if (Platform.OS === "android") setLogPickerMode(null);
+    if (event.type === "dismissed" || !selected) return;
+    setLogDateTime((prev) =>
+      logPickerMode === "date" ? mergeDatePart(prev, selected) : mergeTimePart(prev, selected)
     );
+  };
+
+  const onConfirmLog = async () => {
+    if (!loggingMedication) return;
+    if (logDateTime.getTime() > Date.now()) {
+      Alert.alert("Fecha inválida", "No puedes registrar una toma en el futuro.");
+      return;
+    }
+    const doseNumeric = logDoseAmount ? Number(logDoseAmount.replace(",", ".")) : null;
+    if (logDoseAmount && (doseNumeric === null || Number.isNaN(doseNumeric))) {
+      Alert.alert("Dosis inválida", "Ingresa un número válido para la dosis.");
+      return;
+    }
+    setLoggingSaving(true);
+    try {
+      await insertMedicationLog({
+        medicationId: loggingMedication.id,
+        takenAtMs: logDateTime.getTime(),
+        doseAmount: doseNumeric,
+        notes: null,
+      });
+      runBackgroundEnrichment();
+      setLoggingMedication(null);
+      load();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo registrar la toma.");
+    } finally {
+      setLoggingSaving(false);
+    }
   };
 
   const onDelete = (medication: Medication) => {
@@ -194,6 +295,12 @@ export default function MedicationsScreen() {
         </Text>
       )}
 
+      {interactionNotes.map((note, i) => (
+        <View key={i} style={styles.interactionCard}>
+          <Text style={styles.interactionText}>ℹ️ {note.note}</Text>
+        </View>
+      ))}
+
       {medications.map((m) => (
         <View key={m.id} style={styles.card}>
           <View style={styles.cardHeader}>
@@ -216,12 +323,76 @@ export default function MedicationsScreen() {
           </Text>
           <View style={styles.cardActions}>
             <Pressable style={styles.logButton} onPress={() => onLogDose(m)}>
-              <Text style={styles.logButtonText}>Registrar toma ahora</Text>
+              <Text style={styles.logButtonText}>Registrar toma</Text>
             </Pressable>
             <Pressable style={styles.deleteButton} onPress={() => onDelete(m)}>
               <Text style={styles.deleteButtonText}>Eliminar</Text>
             </Pressable>
           </View>
+
+          {loggingMedication?.id === m.id && (
+            <View style={styles.logForm}>
+              <Text style={styles.label}>Dosis (opcional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ej. 10"
+                keyboardType="decimal-pad"
+                value={logDoseAmount}
+                onChangeText={setLogDoseAmount}
+              />
+
+              <Text style={styles.label}>Día y hora de la toma</Text>
+              <View style={styles.row}>
+                <Pressable
+                  style={[styles.input, styles.flex1]}
+                  onPress={() => setLogPickerMode("date")}
+                >
+                  <Text style={styles.pickerText}>{formatDate(logDateTime)}</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.input, styles.flex1, styles.marginLeft]}
+                  onPress={() => setLogPickerMode("time")}
+                >
+                  <Text style={styles.pickerText}>{formatTime(logDateTime)}</Text>
+                </Pressable>
+              </View>
+
+              {logPickerMode && (
+                <View style={styles.pickerBox}>
+                  <DateTimePicker
+                    value={logDateTime}
+                    mode={logPickerMode}
+                    display={Platform.OS === "ios" ? "spinner" : "default"}
+                    maximumDate={new Date()}
+                    onChange={onLogPickerChange}
+                  />
+                  {Platform.OS === "ios" && (
+                    <Pressable
+                      style={styles.doneButton}
+                      onPress={() => setLogPickerMode(null)}
+                    >
+                      <Text style={styles.doneButtonText}>Listo</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+
+              <View style={styles.formActions}>
+                <Pressable style={styles.cancelButton} onPress={onCancelLog}>
+                  <Text style={styles.cancelButtonText}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.saveButton, loggingSaving && styles.disabled]}
+                  onPress={onConfirmLog}
+                  disabled={loggingSaving}
+                >
+                  <Text style={styles.saveButtonText}>
+                    {loggingSaving ? "Guardando..." : "Confirmar toma"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
         </View>
       ))}
 
@@ -241,8 +412,73 @@ export default function MedicationsScreen() {
             style={styles.input}
             placeholder="Ej. Lantus, Humalog, Metformina"
             value={name}
-            onChangeText={setName}
+            onChangeText={(t) => {
+              setName(t);
+              setShowNameSuggestions(true);
+              setEvidenceResults(null);
+            }}
           />
+          {nameSuggestions.length > 0 && (
+            <View style={styles.suggestionBox}>
+              {nameSuggestions.map((s) => (
+                <Pressable
+                  key={s.slug}
+                  style={styles.suggestionRow}
+                  onPress={() => onSelectSuggestion(s.slug)}
+                >
+                  <Text style={styles.suggestionText}>{s.names[0]}</Text>
+                  <Text style={styles.suggestionMeta}>{MEDICATION_TYPE_LABELS[s.type]}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {matchedReference && (
+            <View style={styles.referenceCard}>
+              <Text style={styles.referenceTitle}>
+                Ficha de referencia — {matchedReference.names[0]}
+              </Text>
+              <Text style={styles.referenceText}>{matchedReference.description}</Text>
+              {matchedReference.onset && (
+                <Text style={styles.referenceMeta}>Inicio de acción: {matchedReference.onset}</Text>
+              )}
+              {matchedReference.peak && (
+                <Text style={styles.referenceMeta}>Pico: {matchedReference.peak}</Text>
+              )}
+              {matchedReference.duration && (
+                <Text style={styles.referenceMeta}>Duración: {matchedReference.duration}</Text>
+              )}
+              <Text style={styles.referenceMeta}>Precauciones: {matchedReference.precautions}</Text>
+              <Text style={styles.referenceSource}>Fuente: {matchedReference.source}</Text>
+              <Text style={styles.referenceDisclaimer}>
+                Información general de referencia — no reemplaza la indicación de tu equipo médico.
+              </Text>
+
+              <Pressable
+                style={[styles.evidenceButton, evidenceLoading && styles.disabled]}
+                onPress={onSearchEvidence}
+                disabled={evidenceLoading}
+              >
+                <Text style={styles.evidenceButtonText}>
+                  {evidenceLoading ? "Buscando..." : "Buscar evidencia relacionada"}
+                </Text>
+              </Pressable>
+
+              {evidenceResults && evidenceResults.length === 0 && (
+                <Text style={styles.referenceMeta}>Sin resultados de evidencia.</Text>
+              )}
+              {evidenceResults?.map((r) => (
+                <View key={`${r.id}-${r.rowId}`} style={styles.evidenceCard}>
+                  <Text style={styles.evidenceTitle}>
+                    {r.title} {r.curated ? "" : "· 🔴 no revisado (PubMed en vivo)"}
+                  </Text>
+                  <Text style={styles.evidenceMeta}>
+                    {r.authors} ({r.year || "s/f"}) · {r.source}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
 
           <Text style={styles.label}>Tipo</Text>
           <View style={styles.chipGrid}>
@@ -383,6 +619,90 @@ const styles = StyleSheet.create({
     borderColor: "#fecaca",
   },
   deleteButtonText: { color: "#dc2626", fontSize: 13, fontWeight: "600" },
+  logForm: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+  },
+  pickerText: { fontSize: 15, color: "#111827", textAlign: "center" },
+  pickerBox: {
+    backgroundColor: "#f9fafb",
+    borderRadius: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    alignItems: "center",
+    paddingBottom: 8,
+  },
+  doneButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    marginTop: 4,
+  },
+  doneButtonText: { color: "#fff", fontWeight: "700" },
+  interactionCard: {
+    backgroundColor: "#fffbeb",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#fde68a",
+  },
+  interactionText: { fontSize: 12, color: "#92400e", lineHeight: 17 },
+  suggestionBox: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    marginTop: 4,
+    overflow: "hidden",
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+  },
+  suggestionText: { fontSize: 14, color: "#111827", fontWeight: "600" },
+  suggestionMeta: { fontSize: 11, color: "#2563eb" },
+  referenceCard: {
+    backgroundColor: "#eef2ff",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+  },
+  referenceTitle: { fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 4 },
+  referenceText: { fontSize: 12, color: "#374151", lineHeight: 17, marginBottom: 6 },
+  referenceMeta: { fontSize: 11, color: "#4338ca", marginTop: 2 },
+  referenceSource: { fontSize: 10, color: "#6b7280", marginTop: 6, fontStyle: "italic" },
+  referenceDisclaimer: {
+    fontSize: 10,
+    color: "#92400e",
+    marginTop: 6,
+    fontStyle: "italic",
+  },
+  evidenceButton: {
+    backgroundColor: "#111827",
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  evidenceButtonText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  evidenceCard: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+  },
+  evidenceTitle: { fontSize: 12, fontWeight: "700", color: "#111827" },
+  evidenceMeta: { fontSize: 11, color: "#6b7280", marginTop: 2 },
   addButton: {
     backgroundColor: "#fff",
     borderRadius: 12,

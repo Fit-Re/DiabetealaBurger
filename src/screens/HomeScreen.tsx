@@ -11,11 +11,12 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { LineChart } from "react-native-chart-kit";
+import GlucoseChart from "../components/GlucoseChart";
 import {
   computeStats,
   deleteReading,
   getActiveMedications,
+  getLifestyleMetricsSince,
   getMealsSince,
   getMedicationLogsSince,
   getReadingsSince,
@@ -27,6 +28,7 @@ import type { EvidenceSynthesis } from "../lib/anthropic";
 import type {
   GlucoseReading,
   KnowledgeSearchResult,
+  LifestyleMetric,
   PatternFinding,
 } from "../types";
 import { TARGET_RANGE, TREND_LABELS } from "../types";
@@ -37,18 +39,21 @@ const PATTERN_WINDOW_MS = 14 * DAY_MS;
 export default function HomeScreen() {
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
   const [patterns, setPatterns] = useState<PatternFinding[]>([]);
+  const [lifestyleMetrics, setLifestyleMetrics] = useState<LifestyleMetric[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     const since = Date.now() - PATTERN_WINDOW_MS;
-    const [rows, meals, medications, medicationLogs] = await Promise.all([
+    const [rows, meals, medications, medicationLogs, lifestyle] = await Promise.all([
       getReadingsSince(since),
       getMealsSince(since),
       getActiveMedications(),
       getMedicationLogsSince(since),
+      getLifestyleMetricsSince(since),
     ]);
     setReadings(rows.filter((r) => r.timestampMs >= Date.now() - DAY_MS));
-    setPatterns(detectPatterns(rows, meals, medications, medicationLogs));
+    setLifestyleMetrics(lifestyle);
+    setPatterns(detectPatterns(rows, meals, medications, medicationLogs, lifestyle));
   }, []);
 
   useFocusEffect(
@@ -79,18 +84,7 @@ export default function HomeScreen() {
 
   const stats = computeStats(readings);
   const chronological = [...readings].reverse();
-  const chartData =
-    chronological.length > 0
-      ? {
-          labels: chronological.map((r) =>
-            new Date(r.timestampMs).toLocaleTimeString("es-MX", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          ),
-          datasets: [{ data: chronological.map((r) => r.value) }],
-        }
-      : null;
+  const latest = chronological[chronological.length - 1] ?? null;
 
   return (
     <ScrollView
@@ -101,24 +95,31 @@ export default function HomeScreen() {
     >
       <Text style={styles.title}>Últimas 24 horas</Text>
 
-      {chartData && chartData.labels.length > 1 ? (
-        <LineChart
-          data={chartData}
-          width={Dimensions.get("window").width - 32}
-          height={220}
-          yAxisSuffix=""
-          chartConfig={{
-            backgroundColor: "#ffffff",
-            backgroundGradientFrom: "#ffffff",
-            backgroundGradientTo: "#ffffff",
-            decimalPlaces: 0,
-            color: (opacity = 1) => `rgba(37, 99, 235, ${opacity})`,
-            labelColor: (opacity = 1) => `rgba(55, 65, 81, ${opacity})`,
-            propsForDots: { r: "3" },
-          }}
-          bezier
-          style={styles.chart}
-        />
+      {latest && <CurrentReadingCard reading={latest} />}
+
+      {chronological.length > 1 ? (
+        <View style={styles.chartCard}>
+          <GlucoseChart
+            readings={chronological}
+            low={TARGET_RANGE.low}
+            high={TARGET_RANGE.high}
+            width={Dimensions.get("window").width - 32 - 24}
+          />
+          <View style={styles.legendRow}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendSwatch, styles.legendRange]} />
+              <Text style={styles.legendText}>Rango objetivo</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendLine, styles.legendLineLow]} />
+              <Text style={styles.legendText}>Bajo ({TARGET_RANGE.low})</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendLine, styles.legendLineHigh]} />
+              <Text style={styles.legendText}>Alto ({TARGET_RANGE.high})</Text>
+            </View>
+          </View>
+        </View>
       ) : (
         <View style={styles.emptyChart}>
           <Text style={styles.emptyText}>
@@ -140,6 +141,13 @@ export default function HomeScreen() {
         <StatCard label="Máximo" value={fmt(stats.max)} />
         <StatCard label={`Bajas (<${TARGET_RANGE.low})`} value={String(stats.lowCount)} />
       </View>
+
+      {lifestyleMetrics.length > 0 && (
+        <>
+          <Text style={styles.subtitle}>Ultrahuman — último día sincronizado</Text>
+          <LifestyleCard metric={lifestyleMetrics[0]} />
+        </>
+      )}
 
       <Text style={styles.subtitle}>Patrones detectados (últimos 14 días)</Text>
       {patterns.length === 0 && (
@@ -191,11 +199,81 @@ function fmt(n: number | null): string {
   return n == null ? "--" : n.toFixed(0);
 }
 
+function timeAgo(ms: number): string {
+  const diffMin = Math.round((Date.now() - ms) / 60000);
+  if (diffMin < 1) return "ahora";
+  if (diffMin < 60) return `hace ${diffMin} min`;
+  const diffHr = Math.round(diffMin / 60);
+  return `hace ${diffHr} h`;
+}
+
+function CurrentReadingCard({ reading }: { reading: GlucoseReading }) {
+  const status =
+    reading.value < TARGET_RANGE.low
+      ? "low"
+      : reading.value > TARGET_RANGE.high
+      ? "high"
+      : "inRange";
+  const statusStyles = {
+    inRange: { card: styles.readingCardInRange, bar: styles.readingBarInRange },
+    low: { card: styles.readingCardLow, bar: styles.readingBarLow },
+    high: { card: styles.readingCardHigh, bar: styles.readingBarHigh },
+  }[status];
+
+  return (
+    <View style={[styles.readingCard, statusStyles.card]}>
+      <View style={[styles.readingCardBar, statusStyles.bar]} />
+      <View style={styles.readingCardContent}>
+        <Text style={styles.readingCardLabel}>Glucosa</Text>
+        <View style={styles.readingCardValueRow}>
+          <Text style={styles.readingCardValue}>{reading.value}</Text>
+          <Text style={styles.readingCardUnit}>{reading.unit}</Text>
+          {reading.trend && (
+            <Text style={styles.readingCardTrend}>{TREND_LABELS[reading.trend].split(" ")[0]}</Text>
+          )}
+        </View>
+        <Text style={styles.readingCardMeta}>{timeAgo(reading.timestampMs)}</Text>
+      </View>
+    </View>
+  );
+}
+
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.statCard}>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function fmtDuration(minutes: number | null): string {
+  if (minutes == null) return "--";
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return `${h}h ${m}m`;
+}
+
+function LifestyleCard({ metric }: { metric: LifestyleMetric }) {
+  return (
+    <View style={styles.lifestyleCard}>
+      <Text style={styles.lifestyleDate}>
+        {new Date(metric.dateMs).toLocaleDateString("es-MX", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        })}
+      </Text>
+      <View style={styles.statsRow}>
+        <StatCard label="Sueño" value={fmt(metric.sleepScore)} />
+        <StatCard label="Duración" value={fmtDuration(metric.sleepDurationMin)} />
+        <StatCard label="HRV" value={fmt(metric.hrvMs)} />
+      </View>
+      <View style={styles.statsRow}>
+        <StatCard label="FC en reposo" value={fmt(metric.restingHeartRate)} />
+        <StatCard label="Recuperación" value={fmt(metric.recoveryIndex)} />
+        <StatCard label="Pasos" value={fmt(metric.steps)} />
+      </View>
     </View>
   );
 }
@@ -317,7 +395,40 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: "#111827",
   },
-  chart: { borderRadius: 12, marginBottom: 8 },
+  chartCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  legendRow: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: 8, paddingHorizontal: 4 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendSwatch: { width: 10, height: 10, borderRadius: 2 },
+  legendRange: { backgroundColor: "#dcfce7" },
+  legendLine: { width: 12, height: 0, borderTopWidth: 2, borderStyle: "dashed" },
+  legendLineLow: { borderTopColor: "#dc2626" },
+  legendLineHigh: { borderTopColor: "#d97706" },
+  legendText: { fontSize: 10, color: "#6b7280" },
+  readingCard: {
+    flexDirection: "row",
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: "hidden",
+  },
+  readingCardBar: { width: 6 },
+  readingCardContent: { flex: 1, paddingVertical: 12, paddingHorizontal: 14 },
+  readingCardInRange: { backgroundColor: "#f0fdf4" },
+  readingCardLow: { backgroundColor: "#fef2f2" },
+  readingCardHigh: { backgroundColor: "#fffbeb" },
+  readingBarInRange: { backgroundColor: "#16a34a" },
+  readingBarLow: { backgroundColor: "#dc2626" },
+  readingBarHigh: { backgroundColor: "#d97706" },
+  readingCardLabel: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
+  readingCardValueRow: { flexDirection: "row", alignItems: "baseline", gap: 6, marginTop: 2 },
+  readingCardValue: { fontSize: 34, fontWeight: "800", color: "#111827" },
+  readingCardUnit: { fontSize: 13, color: "#6b7280" },
+  readingCardTrend: { fontSize: 18, color: "#374151", marginLeft: 2 },
+  readingCardMeta: { fontSize: 11, color: "#9ca3af", marginTop: 2 },
   emptyChart: {
     height: 100,
     justifyContent: "center",
@@ -328,6 +439,19 @@ const styles = StyleSheet.create({
   },
   emptyText: { color: "#6b7280", textAlign: "center" },
   statsRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  lifestyleCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  lifestyleDate: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6b7280",
+    marginBottom: 8,
+    textTransform: "capitalize",
+  },
   statCard: {
     flex: 1,
     backgroundColor: "#fff",

@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import { getReadingsSince, insertReading } from "../db/database";
+import { runBackgroundEnrichment } from "./autoEnrich";
 import type { TrendArrow } from "../types";
 
 // Cliente para la API no oficial de LibreLinkUp (la usada por la app "seguidor"
@@ -370,6 +371,7 @@ export async function syncLibreLinkUp(): Promise<SyncResult> {
   const patient = connections[0];
   const readings = await getGraphData(token, region, patient.patientId, accountIdValue);
   const importedCount = await insertReadingsDeduped(readings);
+  if (importedCount > 0) runBackgroundEnrichment();
 
   return {
     patientName: `${patient.firstName} ${patient.lastName}`.trim() || "Paciente",
