@@ -65,7 +65,12 @@ Deno.serve(async (req) => {
       const result =
         row.service === "librelinkup"
           ? await syncLibreLinkUpForPatient(admin, row.patient_id, row.credentials)
-          : await syncUltrahumanForPatient(admin, row.patient_id, row.credentials);
+          : await syncUltrahumanForPatient(
+              admin,
+              row.patient_id,
+              row.credentials,
+              await getUtcOffsetHoursForPatient(admin, row.patient_id)
+            );
       await admin.from("sync_runs").insert({
         patient_id: row.patient_id,
         service: row.service,
@@ -89,6 +94,29 @@ Deno.serve(async (req) => {
 
   return jsonResponse({ synced: results.length, results });
 });
+
+// Zona horaria de la paciente para el cálculo de "día calendario" del sync de
+// Ultrahuman (ver dateKeyDaysAgo/dateKeyToMs más abajo). Antes era una
+// constante fija del módulo (-6, hora de México); ahora se lee del perfil de
+// cada paciente (patient_profile.utc_offset_hours), con el mismo -6 como
+// fallback si el paciente no tiene perfil creado todavía o si la tabla
+// patient_profile no existe aún (proyecto sin la migración correspondiente
+// aplicada) — nunca debe tronar el sync completo por esto.
+const FALLBACK_UTC_OFFSET_HOURS = -6;
+
+async function getUtcOffsetHoursForPatient(admin: SupabaseClient, patientId: string): Promise<number> {
+  try {
+    const { data, error } = await admin
+      .from("patient_profile")
+      .select("utc_offset_hours")
+      .eq("patient_id", patientId)
+      .maybeSingle();
+    if (error) return FALLBACK_UTC_OFFSET_HOURS;
+    return data?.utc_offset_hours ?? FALLBACK_UTC_OFFSET_HOURS;
+  } catch {
+    return FALLBACK_UTC_OFFSET_HOURS;
+  }
+}
 
 // ============================================================
 // LibreLinkUp — puerto de src/lib/librelinkup.ts (misma API no oficial)
@@ -294,24 +322,22 @@ const UH_BASE_URL = "https://partner.ultrahuman.com/api/v1";
 const UH_DAYS_BACK = 7; // igualar la ventana que la propia Ultrahuman ofrece
 
 // El servidor corre en UTC, pero "hoy" tiene que ser el día calendario de
-// la paciente (México, CST, sin horario de verano desde 2022) — si
-// usáramos el reloj del servidor tal cual, entre ~6pm y medianoche hora de
-// México el servidor ya estaría "en el día siguiente" y pediría/guardaría
-// la fecha equivocada. Si la paciente llegara a viajar de zona horaria,
-// hay que actualizar esta constante.
-const PATIENT_UTC_OFFSET_HOURS = -6;
-
-function dateKeyDaysAgo(daysAgo: number): string {
-  const localMs = Date.now() + PATIENT_UTC_OFFSET_HOURS * 3600_000 - daysAgo * 86_400_000;
+// la paciente — si usáramos el reloj del servidor tal cual, entre el
+// anochecer y medianoche hora local el servidor ya estaría "en el día
+// siguiente" y pediría/guardaría la fecha equivocada. `utcOffsetHours` viene
+// del perfil de cada paciente (ver getUtcOffsetHoursForPatient arriba),
+// fallback -6 (México, CST, sin horario de verano desde 2022).
+function dateKeyDaysAgo(daysAgo: number, utcOffsetHours: number): string {
+  const localMs = Date.now() + utcOffsetHours * 3600_000 - daysAgo * 86_400_000;
   const d = new Date(localMs);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
-function dateKeyToMs(dateKey: string): number {
+function dateKeyToMs(dateKey: string, utcOffsetHours: number): number {
   const [year, month, day] = dateKey.split("-").map(Number);
-  // Medianoche en hora de México, expresada como instante UTC, para que el
-  // teléfono (también en hora de México) la muestre el día correcto.
-  return Date.UTC(year, month - 1, day) - PATIENT_UTC_OFFSET_HOURS * 3600_000;
+  // Medianoche en hora local de la paciente, expresada como instante UTC,
+  // para que el teléfono (en esa misma hora local) la muestre el día correcto.
+  return Date.UTC(year, month - 1, day) - utcOffsetHours * 3600_000;
 }
 
 function findMetricObject(metricData: any[], typeNames: string[]): any | null {
@@ -356,7 +382,8 @@ function normalizeUltrahumanMetrics(raw: any, dateKey: string) {
 async function syncUltrahumanForPatient(
   admin: SupabaseClient,
   patientId: string,
-  creds: { token?: string }
+  creds: { token?: string },
+  utcOffsetHours: number
 ): Promise<{ importedCount: number; message: string }> {
   if (!creds?.token) throw new Error("Falta el token de Ultrahuman.");
 
@@ -364,7 +391,7 @@ async function syncUltrahumanForPatient(
   const errors: string[] = [];
 
   for (let i = 0; i < UH_DAYS_BACK; i++) {
-    const dateKey = dateKeyDaysAgo(i);
+    const dateKey = dateKeyDaysAgo(i, utcOffsetHours);
     try {
       const response = await fetch(`${UH_BASE_URL}/partner/daily_metrics?date=${dateKey}`, {
         headers: { Authorization: creds.token, "content-type": "application/json" },
@@ -378,7 +405,7 @@ async function syncUltrahumanForPatient(
         {
           patient_id: patientId,
           date_key: dateKey,
-          date_ms: dateKeyToMs(dateKey),
+          date_ms: dateKeyToMs(dateKey, utcOffsetHours),
           source: "ultrahuman",
           sleep_score: normalized.sleepScore,
           sleep_duration_min: normalized.sleepDurationMin,

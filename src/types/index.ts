@@ -45,6 +45,43 @@ export const TARGET_RANGE = {
   high: 180,
 };
 
+export type DiabetesType = "type1" | "type2" | "gestational" | "other";
+
+export interface PatientProfile {
+  diabetesType: DiabetesType;
+  diagnosisYear: number | null;
+  targetRangeLow: number;
+  targetRangeHigh: number;
+  insulinCarbRatio: number | null;
+  insulinSensitivityFactor: number | null;
+  utcOffsetHours: number;
+  updatedAtMs: number;
+}
+
+export interface PatientProfileUpdate {
+  diabetesType?: DiabetesType;
+  diagnosisYear?: number | null;
+  targetRangeLow?: number;
+  targetRangeHigh?: number;
+  insulinCarbRatio?: number | null;
+  insulinSensitivityFactor?: number | null;
+  utcOffsetHours?: number;
+}
+
+export interface Hba1cReading {
+  id: number;
+  valuePct: number;
+  measuredAtMs: number;
+  notes: string | null;
+  createdAtMs: number;
+}
+
+export interface NewHba1cReading {
+  valuePct: number;
+  measuredAtMs: number;
+  notes: string | null;
+}
+
 export const TREND_LABELS: Record<NonNullable<TrendArrow>, string> = {
   rising_fast: "↑↑ Subiendo rápido",
   rising: "↑ Subiendo",

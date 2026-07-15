@@ -7,7 +7,9 @@ import {
   Pressable,
   ScrollView,
   Alert,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   clearApiKey,
   getApiKey,
@@ -27,7 +29,14 @@ import {
   searchKnowledge,
 } from "../lib/knowledgeBase";
 import type { IngestProgress } from "../lib/knowledgeBase";
-import type { KnowledgeSearchResult } from "../types";
+import type { DiabetesType, Hba1cReading, KnowledgeSearchResult } from "../types";
+import { TARGET_RANGE } from "../types";
+import {
+  getHba1cReadingsSince,
+  getPatientProfile,
+  insertHba1cReading,
+  upsertPatientProfile,
+} from "../db/database";
 import {
   clearSyncCredentials,
   getRecentSyncRuns,
@@ -39,6 +48,7 @@ import {
 import type { SyncRun } from "../lib/syncCredentials";
 import { clearOcrApiKey, getOcrApiKey, setOcrApiKey } from "../lib/ocrSpace";
 import { useAuth } from "../lib/auth";
+import { formatDate } from "../lib/dateTimeUtils";
 
 interface ApiKeySectionProps {
   title: string;
@@ -338,6 +348,299 @@ function AutoSyncSection() {
   );
 }
 
+const DIABETES_TYPE_OPTIONS: { key: DiabetesType; label: string }[] = [
+  { key: "type1", label: "Tipo 1" },
+  { key: "type2", label: "Tipo 2" },
+  { key: "gestational", label: "Gestacional" },
+  { key: "other", label: "Otro" },
+];
+
+function PatientProfileSection() {
+  const [diabetesType, setDiabetesType] = useState<DiabetesType>("type1");
+  const [targetLow, setTargetLow] = useState(String(TARGET_RANGE.low));
+  const [targetHigh, setTargetHigh] = useState(String(TARGET_RANGE.high));
+  const [insulinCarbRatio, setInsulinCarbRatio] = useState("");
+  const [insulinSensitivityFactor, setInsulinSensitivityFactor] = useState("");
+  const [diagnosisYear, setDiagnosisYear] = useState("");
+  const [utcOffsetHours, setUtcOffsetHours] = useState("-6");
+  const [saving, setSaving] = useState(false);
+
+  const [hba1cValue, setHba1cValue] = useState("");
+  const [hba1cDate, setHba1cDate] = useState(() => new Date());
+  const [hba1cPickerOpen, setHba1cPickerOpen] = useState(false);
+  const [hba1cReadings, setHba1cReadings] = useState<Hba1cReading[]>([]);
+  const [savingHba1c, setSavingHba1c] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const profile = await getPatientProfile();
+      if (profile) {
+        setDiabetesType(profile.diabetesType);
+        setTargetLow(String(profile.targetRangeLow));
+        setTargetHigh(String(profile.targetRangeHigh));
+        setInsulinCarbRatio(profile.insulinCarbRatio != null ? String(profile.insulinCarbRatio) : "");
+        setInsulinSensitivityFactor(
+          profile.insulinSensitivityFactor != null ? String(profile.insulinSensitivityFactor) : ""
+        );
+        setDiagnosisYear(profile.diagnosisYear != null ? String(profile.diagnosisYear) : "");
+        setUtcOffsetHours(String(profile.utcOffsetHours));
+      }
+      const readings = await getHba1cReadingsSince(0);
+      setHba1cReadings(readings.slice(0, 3));
+    } catch {
+      // Tablas de perfil todavía no migradas en Supabase (ver
+      // supabase/migration_patient_profile.sql) — se resuelve solo una vez
+      // corrida la migración, no hace falta molestar al usuario acá.
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const onSaveProfile = async () => {
+    const low = Number(targetLow.replace(",", "."));
+    const high = Number(targetHigh.replace(",", "."));
+    if (!targetLow || !targetHigh || Number.isNaN(low) || Number.isNaN(high) || low >= high) {
+      Alert.alert("Rango inválido", "El límite bajo debe ser menor al límite alto, ambos numéricos.");
+      return;
+    }
+    const ratio = insulinCarbRatio.trim() ? Number(insulinCarbRatio.replace(",", ".")) : null;
+    if (ratio !== null && (Number.isNaN(ratio) || ratio <= 0)) {
+      Alert.alert("Ratio inválido", "El ratio insulina:carbohidratos debe ser un número mayor a 0.");
+      return;
+    }
+    const sensitivity = insulinSensitivityFactor.trim()
+      ? Number(insulinSensitivityFactor.replace(",", "."))
+      : null;
+    if (sensitivity !== null && (Number.isNaN(sensitivity) || sensitivity <= 0)) {
+      Alert.alert("Factor inválido", "El factor de sensibilidad debe ser un número mayor a 0.");
+      return;
+    }
+    const year = diagnosisYear.trim() ? Number(diagnosisYear) : null;
+    if (year !== null && (Number.isNaN(year) || year < 1900 || year > new Date().getFullYear())) {
+      Alert.alert("Año inválido", "Ingresa un año de diagnóstico válido.");
+      return;
+    }
+    const offset = Number(utcOffsetHours.replace(",", "."));
+    if (!utcOffsetHours || Number.isNaN(offset)) {
+      Alert.alert("Zona horaria inválida", "El offset de zona horaria debe ser numérico.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await upsertPatientProfile({
+        diabetesType,
+        targetRangeLow: low,
+        targetRangeHigh: high,
+        insulinCarbRatio: ratio,
+        insulinSensitivityFactor: sensitivity,
+        diagnosisYear: year,
+        utcOffsetHours: offset,
+      });
+      await refresh();
+      Alert.alert("Guardado", "Tu perfil se guardó correctamente.");
+    } catch (e: any) {
+      Alert.alert(
+        "Error al guardar",
+        e?.message ?? "No se pudo guardar. Revisa que la migración de Supabase esté aplicada."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onHba1cDateChange = (event: { type: string }, selected?: Date) => {
+    if (Platform.OS === "android") setHba1cPickerOpen(false);
+    if (event.type === "dismissed" || !selected) return;
+    setHba1cDate(selected);
+  };
+
+  const onSaveHba1c = async () => {
+    const numeric = Number(hba1cValue.replace(",", "."));
+    if (!hba1cValue || Number.isNaN(numeric) || numeric <= 0) {
+      Alert.alert("Valor inválido", "Ingresa un valor de HbA1c válido (%).");
+      return;
+    }
+    if (hba1cDate.getTime() > Date.now()) {
+      Alert.alert("Fecha inválida", "No puedes registrar una medición en el futuro.");
+      return;
+    }
+    setSavingHba1c(true);
+    try {
+      await insertHba1cReading({
+        valuePct: numeric,
+        measuredAtMs: hba1cDate.getTime(),
+        notes: null,
+      });
+      setHba1cValue("");
+      setHba1cDate(new Date());
+      await refresh();
+      Alert.alert("Guardado", "La medición de HbA1c se registró correctamente.");
+    } catch (e: any) {
+      Alert.alert(
+        "Error al guardar",
+        e?.message ?? "No se pudo guardar. Revisa que la migración de Supabase esté aplicada."
+      );
+    } finally {
+      setSavingHba1c(false);
+    }
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Perfil de paciente</Text>
+      <Text style={styles.description}>
+        Este perfil alimenta el rango objetivo, la detección de patrones y el cálculo de dosis
+        del resto de la app. Guárdalo una vez y no tendrás que repetirlo.
+      </Text>
+
+      <Text style={styles.subsectionTitle}>Tipo de diabetes</Text>
+      <View style={styles.trendGrid}>
+        {DIABETES_TYPE_OPTIONS.map((opt) => (
+          <Pressable
+            key={opt.key}
+            style={[styles.trendChip, diabetesType === opt.key && styles.trendChipSelected]}
+            onPress={() => setDiabetesType(opt.key)}
+          >
+            <Text
+              style={[
+                styles.trendChipText,
+                diabetesType === opt.key && styles.trendChipTextSelected,
+              ]}
+            >
+              {opt.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.subsectionTitle}>Rango objetivo (mg/dL)</Text>
+      <View style={styles.row}>
+        <TextInput
+          style={[styles.input, styles.flex1]}
+          placeholder="Bajo (ej. 70)"
+          keyboardType="decimal-pad"
+          value={targetLow}
+          onChangeText={setTargetLow}
+        />
+        <TextInput
+          style={[styles.input, styles.flex1, styles.marginLeft]}
+          placeholder="Alto (ej. 180)"
+          keyboardType="decimal-pad"
+          value={targetHigh}
+          onChangeText={setTargetHigh}
+        />
+      </View>
+
+      <Text style={styles.subsectionTitle}>Ratio insulina:carbohidratos (g por unidad)</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej. 10 (1 unidad cubre 10g de carbohidratos)"
+        keyboardType="decimal-pad"
+        value={insulinCarbRatio}
+        onChangeText={setInsulinCarbRatio}
+      />
+
+      <Text style={styles.subsectionTitle}>Factor de sensibilidad a la insulina (mg/dL por unidad)</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej. 50 (1 unidad de corrección baja 50 mg/dL)"
+        keyboardType="decimal-pad"
+        value={insulinSensitivityFactor}
+        onChangeText={setInsulinSensitivityFactor}
+      />
+
+      <Text style={styles.subsectionTitle}>Año de diagnóstico</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej. 2015"
+        keyboardType="number-pad"
+        value={diagnosisYear}
+        onChangeText={setDiagnosisYear}
+      />
+
+      <Text style={styles.subsectionTitle}>Offset de zona horaria (horas respecto a UTC)</Text>
+      <Text style={styles.description}>
+        Hoy la sincronización automática de Ultrahuman solo interpreta correctamente este valor
+        para la hora de México (CST, sin horario de verano desde 2022): -6. Cambiarlo afecta a
+        qué día calendario se le asignan tus métricas de sueño/HRV.
+      </Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Ej. -6"
+        keyboardType="numbers-and-punctuation"
+        value={utcOffsetHours}
+        onChangeText={setUtcOffsetHours}
+      />
+
+      <Pressable
+        style={[styles.saveButton, saving && styles.disabled, { marginTop: 8 }]}
+        onPress={onSaveProfile}
+        disabled={saving}
+      >
+        <Text style={styles.saveButtonText}>{saving ? "Guardando..." : "Guardar perfil"}</Text>
+      </Pressable>
+
+      <Text style={[styles.subsectionTitle, { marginTop: 20 }]}>Registrar HbA1c</Text>
+      <View style={styles.row}>
+        <TextInput
+          style={[styles.input, styles.flex1]}
+          placeholder="Valor (%, ej. 7.2)"
+          keyboardType="decimal-pad"
+          value={hba1cValue}
+          onChangeText={setHba1cValue}
+        />
+        <Pressable
+          style={[styles.input, styles.flex1, styles.marginLeft]}
+          onPress={() => setHba1cPickerOpen(true)}
+        >
+          <Text style={styles.pickerText}>{formatDate(hba1cDate)}</Text>
+        </Pressable>
+      </View>
+
+      {hba1cPickerOpen && (
+        <View style={styles.pickerBox}>
+          <DateTimePicker
+            value={hba1cDate}
+            mode="date"
+            display={Platform.OS === "ios" ? "spinner" : "default"}
+            maximumDate={new Date()}
+            onChange={onHba1cDateChange}
+          />
+          {Platform.OS === "ios" && (
+            <Pressable style={styles.doneButton} onPress={() => setHba1cPickerOpen(false)}>
+              <Text style={styles.doneButtonText}>Listo</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      <Pressable
+        style={[styles.saveButton, savingHba1c && styles.disabled, { marginTop: 8 }]}
+        onPress={onSaveHba1c}
+        disabled={savingHba1c}
+      >
+        <Text style={styles.saveButtonText}>
+          {savingHba1c ? "Guardando..." : "Registrar HbA1c"}
+        </Text>
+      </Pressable>
+
+      {hba1cReadings.length > 0 && (
+        <View style={{ marginTop: 14 }}>
+          <Text style={styles.subsectionTitle}>Últimas mediciones</Text>
+          {hba1cReadings.map((r) => (
+            <Text key={r.id} style={styles.status}>
+              {r.valuePct.toFixed(1)}% — {formatDate(new Date(r.measuredAtMs))}
+            </Text>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 function KnowledgeBaseSection() {
   const [ingestedCount, setIngestedCount] = useState(0);
   const corpusSize = getCorpusSize();
@@ -552,6 +855,8 @@ export default function SettingsScreen() {
 
       <AutoSyncSection />
 
+      <PatientProfileSection />
+
       <ApiKeySection
         title="API key de OCR.space — lectura gratis de capturas de LibreLink"
         description="Se usa para autocompletar el valor de glucosa al importar una captura de LibreLink, sin usar créditos de Anthropic. Es gratis: regístrate sin tarjeta en ocr.space/ocrapi/freekey para obtener tu key. Solo lee el número — la flecha de tendencia hay que confirmarla a mano, a diferencia del autocompletado con IA."
@@ -624,6 +929,40 @@ const styles = StyleSheet.create({
     padding: 14,
     alignItems: "center",
   },
+  row: { flexDirection: "row" },
+  flex1: { flex: 1 },
+  marginLeft: { marginLeft: 8 },
+  pickerText: { fontSize: 15, color: "#111827", textAlign: "center" },
+  pickerBox: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    marginTop: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    alignItems: "center",
+    paddingBottom: 8,
+  },
+  doneButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    marginTop: 4,
+  },
+  doneButtonText: { color: "#fff", fontWeight: "700" },
+  trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  trendChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  trendChipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
+  trendChipText: { fontSize: 13, color: "#374151" },
+  trendChipTextSelected: { color: "#fff" },
   saveButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   disabled: { opacity: 0.6 },
   clearButton: { alignItems: "center", padding: 12, marginTop: 8 },

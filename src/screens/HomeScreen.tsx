@@ -19,6 +19,7 @@ import {
   getLifestyleMetricsSince,
   getMealsSince,
   getMedicationLogsSince,
+  getPatientProfile,
   getReadingsBetween,
   getReadingsSince,
 } from "../db/database";
@@ -31,6 +32,7 @@ import type {
   GlucoseReading,
   KnowledgeSearchResult,
   LifestyleMetric,
+  PatientProfile,
   PatternFinding,
 } from "../types";
 import { TARGET_RANGE, TREND_LABELS } from "../types";
@@ -54,13 +56,14 @@ export default function HomeScreen() {
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
   const [patterns, setPatterns] = useState<PatternFinding[]>([]);
   const [lifestyleMetrics, setLifestyleMetrics] = useState<LifestyleMetric[]>([]);
+  const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const isToday = isSameDay(dayStart, startOfDay(new Date()));
 
   const load = useCallback(async () => {
     const since = Date.now() - PATTERN_WINDOW_MS;
-    const [dayReadings, rows, meals, medications, medicationLogs, lifestyle] =
+    const [dayReadings, rows, meals, medications, medicationLogs, lifestyle, patientProfile] =
       await Promise.all([
         getReadingsBetween(dayStart.getTime(), dayStart.getTime() + DAY_MS),
         getReadingsSince(since),
@@ -68,10 +71,18 @@ export default function HomeScreen() {
         getActiveMedications(),
         getMedicationLogsSince(since),
         getLifestyleMetricsSince(since),
+        // La migración de patient_profile todavía no se corre en todas las
+        // instancias de producción — si la tabla no existe, no debe tumbar
+        // el resto de la pantalla, solo caer al TARGET_RANGE por defecto.
+        getPatientProfile().catch(() => null),
       ]);
     setReadings(dayReadings);
     setLifestyleMetrics(lifestyle);
-    setPatterns(detectPatterns(rows, meals, medications, medicationLogs, lifestyle));
+    setProfile(patientProfile);
+    const effectiveTargetLow = patientProfile?.targetRangeLow ?? TARGET_RANGE.low;
+    setPatterns(
+      detectPatterns(rows, meals, medications, medicationLogs, lifestyle, effectiveTargetLow)
+    );
   }, [dayStart]);
 
   useFocusEffect(
@@ -104,7 +115,9 @@ export default function HomeScreen() {
     ]);
   };
 
-  const stats = computeStats(readings);
+  const targetLow = profile?.targetRangeLow ?? TARGET_RANGE.low;
+  const targetHigh = profile?.targetRangeHigh ?? TARGET_RANGE.high;
+  const stats = computeStats(readings, targetLow, targetHigh);
   const chronological = [...readings].reverse();
   const latest = chronological[chronological.length - 1] ?? null;
 
@@ -137,14 +150,21 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      {latest && <CurrentReadingCard reading={latest} isToday={isToday} />}
+      {latest && (
+        <CurrentReadingCard
+          reading={latest}
+          isToday={isToday}
+          targetLow={targetLow}
+          targetHigh={targetHigh}
+        />
+      )}
 
       {chronological.length > 1 ? (
         <View style={styles.chartCard}>
           <GlucoseChart
             readings={chronological}
-            low={TARGET_RANGE.low}
-            high={TARGET_RANGE.high}
+            low={targetLow}
+            high={targetHigh}
             width={Dimensions.get("window").width - 32 - 24}
           />
           <View style={styles.legendRow}>
@@ -154,11 +174,11 @@ export default function HomeScreen() {
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendLine, styles.legendLineLow]} />
-              <Text style={styles.legendText}>Bajo ({TARGET_RANGE.low})</Text>
+              <Text style={styles.legendText}>Bajo ({targetLow})</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendLine, styles.legendLineHigh]} />
-              <Text style={styles.legendText}>Alto ({TARGET_RANGE.high})</Text>
+              <Text style={styles.legendText}>Alto ({targetHigh})</Text>
             </View>
           </View>
         </View>
@@ -181,7 +201,7 @@ export default function HomeScreen() {
       <View style={styles.statsRow}>
         <StatCard label="Mínimo" value={fmt(stats.min)} />
         <StatCard label="Máximo" value={fmt(stats.max)} />
-        <StatCard label={`Bajas (<${TARGET_RANGE.low})`} value={String(stats.lowCount)} />
+        <StatCard label={`Bajas (<${targetLow})`} value={String(stats.lowCount)} />
       </View>
 
       {lifestyleMetrics.length > 0 && (
@@ -256,14 +276,18 @@ function timeAgo(ms: number): string {
 function CurrentReadingCard({
   reading,
   isToday,
+  targetLow,
+  targetHigh,
 }: {
   reading: GlucoseReading;
   isToday: boolean;
+  targetLow: number;
+  targetHigh: number;
 }) {
   const status =
-    reading.value < TARGET_RANGE.low
+    reading.value < targetLow
       ? "low"
-      : reading.value > TARGET_RANGE.high
+      : reading.value > targetHigh
       ? "high"
       : "inRange";
   const statusStyles = {

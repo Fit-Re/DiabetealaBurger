@@ -1,6 +1,8 @@
 import { supabase } from "../lib/supabase";
 import type {
+  DiabetesType,
   GlucoseReading,
+  Hba1cReading,
   KnowledgeChunk,
   KnowledgeCorpusEntry,
   LifestyleMetric,
@@ -11,10 +13,13 @@ import type {
   MedicationLog,
   MedicationType,
   NewGlucoseReading,
+  NewHba1cReading,
   NewLifestyleMetric,
   NewMeal,
   NewMedication,
   NewMedicationLog,
+  PatientProfile,
+  PatientProfileUpdate,
   RangeStats,
 } from "../types";
 import { TARGET_RANGE } from "../types";
@@ -497,6 +502,89 @@ export async function getLifestyleMetricsSince(
     steps: row.steps,
     vo2Max: row.vo2_max,
     raw: row.raw,
+    createdAtMs: row.created_at_ms,
+  }));
+}
+
+interface PatientProfileRow {
+  patient_id: string;
+  diabetes_type: DiabetesType;
+  diagnosis_year: number | null;
+  target_range_low: number;
+  target_range_high: number;
+  insulin_carb_ratio: number | null;
+  insulin_sensitivity_factor: number | null;
+  utc_offset_hours: number;
+  updated_at_ms: number;
+}
+
+function mapPatientProfileRow(row: PatientProfileRow): PatientProfile {
+  return {
+    diabetesType: row.diabetes_type,
+    diagnosisYear: row.diagnosis_year,
+    targetRangeLow: row.target_range_low,
+    targetRangeHigh: row.target_range_high,
+    insulinCarbRatio: row.insulin_carb_ratio,
+    insulinSensitivityFactor: row.insulin_sensitivity_factor,
+    utcOffsetHours: row.utc_offset_hours,
+    updatedAtMs: row.updated_at_ms,
+  };
+}
+
+export async function getPatientProfile(): Promise<PatientProfile | null> {
+  const { data, error } = await supabase.from("patient_profile").select("*").maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapPatientProfileRow(data as PatientProfileRow) : null;
+}
+
+export async function upsertPatientProfile(update: PatientProfileUpdate): Promise<void> {
+  const payload: Record<string, unknown> = {};
+  if (update.diabetesType !== undefined) payload.diabetes_type = update.diabetesType;
+  if (update.diagnosisYear !== undefined) payload.diagnosis_year = update.diagnosisYear;
+  if (update.targetRangeLow !== undefined) payload.target_range_low = update.targetRangeLow;
+  if (update.targetRangeHigh !== undefined) payload.target_range_high = update.targetRangeHigh;
+  if (update.insulinCarbRatio !== undefined) payload.insulin_carb_ratio = update.insulinCarbRatio;
+  if (update.insulinSensitivityFactor !== undefined)
+    payload.insulin_sensitivity_factor = update.insulinSensitivityFactor;
+  if (update.utcOffsetHours !== undefined) payload.utc_offset_hours = update.utcOffsetHours;
+  payload.updated_at_ms = Date.now();
+
+  const { error } = await supabase.from("patient_profile").upsert(payload, { onConflict: "patient_id" });
+  if (error) throw new Error(error.message);
+}
+
+interface Hba1cReadingRow {
+  id: number;
+  value_pct: number;
+  measured_at_ms: number;
+  notes: string | null;
+  created_at_ms: number;
+}
+
+export async function insertHba1cReading(reading: NewHba1cReading): Promise<number> {
+  const result = await supabase
+    .from("hba1c_readings")
+    .insert({
+      value_pct: reading.valuePct,
+      measured_at_ms: reading.measuredAtMs,
+      notes: reading.notes,
+    })
+    .select("id")
+    .single();
+  return unwrap(result).id;
+}
+
+export async function getHba1cReadingsSince(sinceMs: number): Promise<Hba1cReading[]> {
+  const result = await supabase
+    .from("hba1c_readings")
+    .select("*")
+    .gte("measured_at_ms", sinceMs)
+    .order("measured_at_ms", { ascending: false });
+  return unwrap<Hba1cReadingRow[]>(result).map((row) => ({
+    id: row.id,
+    valuePct: row.value_pct,
+    measuredAtMs: row.measured_at_ms,
+    notes: row.notes,
     createdAtMs: row.created_at_ms,
   }));
 }

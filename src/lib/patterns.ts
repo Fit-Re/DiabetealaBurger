@@ -82,12 +82,15 @@ function detectDawnPhenomenon(readings: GlucoseReading[]): PatternFinding | null
   };
 }
 
-function detectNocturnalHypoglycemia(readings: GlucoseReading[]): PatternFinding | null {
+function detectNocturnalHypoglycemia(
+  readings: GlucoseReading[],
+  targetLow: number
+): PatternFinding | null {
   const nightsWithHypo = new Set<string>();
   let hypoCount = 0;
   for (const r of readings) {
     const hour = hourOf(r.timestampMs);
-    if (hour >= NIGHT_START_HOUR && hour < NIGHT_END_HOUR && r.value < TARGET_RANGE.low) {
+    if (hour >= NIGHT_START_HOUR && hour < NIGHT_END_HOUR && r.value < targetLow) {
       nightsWithHypo.add(dayKeyOf(r.timestampMs));
       hypoCount++;
     }
@@ -98,7 +101,7 @@ function detectNocturnalHypoglycemia(readings: GlucoseReading[]): PatternFinding
   return {
     id: "nocturnal_hypoglycemia",
     title: "Hipoglucemia nocturna recurrente",
-    description: `Se detectaron ${hypoCount} lecturas por debajo de ${TARGET_RANGE.low} mg/dL entre medianoche y las 6am, en ${nightsWithHypo.size} noches distintas.`,
+    description: `Se detectaron ${hypoCount} lecturas por debajo de ${targetLow} mg/dL entre medianoche y las 6am, en ${nightsWithHypo.size} noches distintas.`,
     severity: "attention",
     suggestedQuery: "factores de riesgo de hipoglucemia nocturna en diabetes tipo 1",
     evidenceCount: hypoCount,
@@ -293,14 +296,15 @@ export function detectPatterns(
   meals: Meal[],
   medications: Medication[],
   medicationLogs: MedicationLog[],
-  lifestyleMetrics: LifestyleMetric[] = []
+  lifestyleMetrics: LifestyleMetric[] = [],
+  targetLow: number = TARGET_RANGE.low
 ): PatternFinding[] {
   const sleepDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "sleepScore");
   const hrvDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "hrvMs");
 
   const findings = [
     detectLowTimeInRange(readings),
-    detectNocturnalHypoglycemia(readings),
+    detectNocturnalHypoglycemia(readings, targetLow),
     detectDawnPhenomenon(readings),
     detectPostMealHyperglycemia(readings, meals),
     detectMedicationAdherence(medications, medicationLogs),
