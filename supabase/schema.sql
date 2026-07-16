@@ -222,3 +222,23 @@ create index if not exists idx_hba1c_patient on hba1c_readings (patient_id, meas
 alter table hba1c_readings enable row level security;
 create policy "patients manage own hba1c readings" on hba1c_readings
   for all using (auth.uid() = patient_id) with check (auth.uid() = patient_id);
+
+-- Historial de patrones detectados, calculado client-side (por eso default auth.uid(),
+-- a diferencia de sync_runs que es solo service_role). Permite tendencia semana a semana
+-- y evita re-notificar el mismo hallazgo repetidamente.
+create table if not exists pattern_history (
+  id bigint generated always as identity primary key,
+  patient_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  pattern_id text not null,
+  severity text not null check (severity in ('info', 'watch', 'attention')),
+  evidence_count integer not null default 0,
+  detected_at_ms bigint not null default (extract(epoch from now()) * 1000),
+  window_start_ms bigint not null,
+  window_end_ms bigint not null,
+  notified boolean not null default false
+);
+create index if not exists idx_pattern_history_patient on pattern_history (patient_id, pattern_id, detected_at_ms desc);
+
+alter table pattern_history enable row level security;
+create policy "patients manage own pattern history" on pattern_history
+  for all using (auth.uid() = patient_id) with check (auth.uid() = patient_id);

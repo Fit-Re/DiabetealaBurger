@@ -369,6 +369,18 @@ const SEVERITY_LABELS: Record<PatternFinding["severity"], string> = {
   info: "🔵 Info",
 };
 
+// Badge de tendencia (Fase 4): color según si el patrón mejora, empeora o se
+// mantiene respecto a la corrida previa. Neutro para "nuevo"/"estable".
+const TREND_BADGES: Record<
+  NonNullable<PatternFinding["trend"]>,
+  { label: string; color: string; bg: string }
+> = {
+  new: { label: "nuevo", color: "#374151", bg: "#f3f4f6" },
+  worsening: { label: "↑ empeorando", color: "#b91c1c", bg: "#fee2e2" },
+  improving: { label: "↓ mejorando", color: "#15803d", bg: "#dcfce7" },
+  stable: { label: "= estable", color: "#374151", bg: "#f3f4f6" },
+};
+
 const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], string> = {
   strong: "Sólida",
   moderate: "Moderada",
@@ -415,6 +427,19 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
     <Pressable style={styles.patternCard} onPress={onToggle}>
       <View style={styles.patternHeader}>
         <Text style={styles.patternTitle}>{pattern.title}</Text>
+        {pattern.trend && (
+          <Text
+            style={[
+              styles.patternTrendBadge,
+              {
+                color: TREND_BADGES[pattern.trend].color,
+                backgroundColor: TREND_BADGES[pattern.trend].bg,
+              },
+            ]}
+          >
+            {TREND_BADGES[pattern.trend].label}
+          </Text>
+        )}
         <Text style={styles.patternSeverity}>{SEVERITY_LABELS[pattern.severity]}</Text>
       </View>
       <Text style={styles.patternDescription}>{pattern.description}</Text>
@@ -596,6 +621,15 @@ const styles = StyleSheet.create({
   patternHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   patternTitle: { fontSize: 14, fontWeight: "700", color: "#111827", flex: 1, marginRight: 8 },
   patternSeverity: { fontSize: 11, fontWeight: "600" },
+  patternTrendBadge: {
+    fontSize: 10,
+    fontWeight: "700",
+    marginRight: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
   patternDescription: { fontSize: 12, color: "#374151", marginTop: 6, lineHeight: 17 },
   patternEvidence: { marginTop: 10, borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingTop: 10 },
   evidenceCard: {

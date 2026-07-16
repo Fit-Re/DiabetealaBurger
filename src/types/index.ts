@@ -271,4 +271,7 @@ export interface PatternFinding {
   severity: PatternSeverity;
   suggestedQuery: string;
   evidenceCount: number;
+  // Tendencia vs. la corrida previa más reciente del mismo patrón (Fase 4).
+  // Opcional: undefined si aún no se pudo comparar (p. ej. tabla no migrada).
+  trend?: "new" | "improving" | "stable" | "worsening";
 }

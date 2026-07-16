@@ -44,7 +44,24 @@ function dayKeyOf(timestampMs: number): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-function detectDawnPhenomenon(readings: GlucoseReading[]): PatternFinding | null {
+// Noches con hipoglucemia nocturna (hora NIGHT_START..NIGHT_END con value < targetLow),
+// indexadas por dayKeyOf. Se comparte entre detectNocturnalHypoglycemia (que las
+// reporta) y detectDawnPhenomenon (que las excluye para descartar rebote/Somogyi).
+function findHypoNights(readings: GlucoseReading[], targetLow: number): Set<string> {
+  const nights = new Set<string>();
+  for (const r of readings) {
+    const hour = hourOf(r.timestampMs);
+    if (hour >= NIGHT_START_HOUR && hour < NIGHT_END_HOUR && r.value < targetLow) {
+      nights.add(dayKeyOf(r.timestampMs));
+    }
+  }
+  return nights;
+}
+
+function detectDawnPhenomenon(
+  readings: GlucoseReading[],
+  hypoNights: Set<string>
+): PatternFinding | null {
   const byDay = new Map<string, { bedtime: number[]; dawn: number[] }>();
   for (const r of readings) {
     const hour = hourOf(r.timestampMs);
@@ -60,7 +77,10 @@ function detectDawnPhenomenon(readings: GlucoseReading[]): PatternFinding | null
 
   let qualifyingDays = 0;
   let totalRise = 0;
-  for (const { bedtime, dawn } of byDay.values()) {
+  for (const [key, { bedtime, dawn }] of byDay.entries()) {
+    // Noche con hipoglucemia previa: la subida matutina es probablemente rebote
+    // (Somogyi), no fenómeno del alba real, así que se excluye del cálculo.
+    if (hypoNights.has(key)) continue;
     if (bedtime.length === 0 || dawn.length === 0) continue;
     const avgBedtime = bedtime.reduce((a, b) => a + b, 0) / bedtime.length;
     const avgDawn = dawn.reduce((a, b) => a + b, 0) / dawn.length;
@@ -88,12 +108,11 @@ function detectNocturnalHypoglycemia(
   readings: GlucoseReading[],
   targetLow: number
 ): PatternFinding | null {
-  const nightsWithHypo = new Set<string>();
+  const nightsWithHypo = findHypoNights(readings, targetLow);
   let hypoCount = 0;
   for (const r of readings) {
     const hour = hourOf(r.timestampMs);
     if (hour >= NIGHT_START_HOUR && hour < NIGHT_END_HOUR && r.value < targetLow) {
-      nightsWithHypo.add(dayKeyOf(r.timestampMs));
       hypoCount++;
     }
   }
@@ -345,10 +364,14 @@ export function detectPatterns(
   const sleepDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "sleepScore");
   const hrvDays = buildDailyLifestyleGlucose(readings, lifestyleMetrics, "hrvMs");
 
+  // Noches con hipoglucemia nocturna: se calculan una vez y se reusan para que
+  // el fenómeno del alba excluya las noches con rebote (Somogyi).
+  const hypoNights = findHypoNights(readings, targetLow);
+
   const findings = [
     detectLowTimeInRange(readings),
     detectNocturnalHypoglycemia(readings, targetLow),
-    detectDawnPhenomenon(readings),
+    detectDawnPhenomenon(readings, hypoNights),
     detectPostMealHyperglycemia(readings, meals, medicationLogs, insulinCarbRatio),
     detectMedicationAdherence(medications, medicationLogs),
     detectLifestyleCorrelation(

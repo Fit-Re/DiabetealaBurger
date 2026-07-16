@@ -48,6 +48,15 @@ export async function scheduleMedicationReminders(
   return ids;
 }
 
+// Notificación local inmediata disparada por un hallazgo de patrón (Fase 4).
+// trigger: null => se dispara de inmediato en esta versión de expo-notifications
+// (verificado contra https://docs.expo.dev/versions/v57.0.0/sdk/notifications/).
+export async function notifyPatternFinding(title: string, body: string): Promise<void> {
+  const granted = await ensureNotificationPermission();
+  if (!granted) return;
+  await Notifications.scheduleNotificationAsync({ content: { title, body }, trigger: null });
+}
+
 export async function cancelNotifications(ids: string[]): Promise<void> {
   await Promise.all(
     ids.map((id) => Notifications.cancelScheduledNotificationAsync(id))
