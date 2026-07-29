@@ -17,6 +17,10 @@ import { getGeminiApiKey } from "./gemini";
 
 const MODEL = "gemini-3.5-flash";
 
+// Timeout de red: sin esto, un fetch que se cuelga (Gemini lento, red caída,
+// respuesta que nunca llega) deja el spinner girando para siempre en la UI.
+const REQUEST_TIMEOUT_MS = 60_000;
+
 async function callGemini(
   parts: any[],
   responseSchema?: object
@@ -38,17 +42,32 @@ async function callGemini(
     };
   }
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify(body),
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      }
+    );
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      throw new Error(
+        `Gemini no respondió en ${REQUEST_TIMEOUT_MS / 1000}s. Revisa tu conexión e inténtalo de nuevo.`
+      );
     }
-  );
+    throw new Error(`Error de red al llamar a Gemini: ${e?.message ?? e}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
