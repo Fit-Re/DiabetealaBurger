@@ -3,7 +3,8 @@
 // lectura de capturas de LibreLink, análisis de fotos de comida y síntesis de
 // evidencia clínica. Documentación de referencia usada:
 //   https://ai.google.dev/api/generate-content
-// Auth: header `x-goog-api-key: <KEY>`. Modelo: gemini-2.5-flash.
+// Auth: header `x-goog-api-key: <KEY>`. Modelo: gemini-3.5-flash (estable y
+// recomendado; gemini-2.5-flash quedó no disponible para usuarios nuevos).
 // La API key es la MISMA de embeddings (una sola key de Gemini para toda la app),
 // por eso se reutiliza getGeminiApiKey de ./gemini.
 import type {
@@ -14,7 +15,7 @@ import type {
 } from "../types";
 import { getGeminiApiKey } from "./gemini";
 
-const MODEL = "gemini-2.5-flash";
+const MODEL = "gemini-3.5-flash";
 
 async function callGemini(
   parts: any[],
