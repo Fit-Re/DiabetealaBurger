@@ -17,9 +17,18 @@ import { getGeminiApiKey } from "./gemini";
 
 const MODEL = "gemini-3.5-flash";
 
-// Timeout de red: sin esto, un fetch que se cuelga (Gemini lento, red caída,
-// respuesta que nunca llega) deja el spinner girando para siempre en la UI.
+// Timeout de red por intento: sin esto, un fetch que se cuelga (Gemini lento,
+// red caída, respuesta que nunca llega) deja el spinner girando para siempre.
 const REQUEST_TIMEOUT_MS = 60_000;
+// Reintentos ante sobrecarga temporal del tier gratis (503 "high demand"), rate
+// limit (429) o errores 5xx transitorios. Los errores no recuperables (400/401/
+// 403/404) fallan de inmediato, sin reintentar.
+const MAX_ATTEMPTS = 4;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function callGemini(
   parts: any[],
@@ -42,44 +51,63 @@ async function callGemini(
     };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  let response: Response;
-  try {
-    response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      }
-    );
-  } catch (e: any) {
-    if (e?.name === "AbortError") {
-      throw new Error(
-        `Gemini no respondió en ${REQUEST_TIMEOUT_MS / 1000}s. Revisa tu conexión e inténtalo de nuevo.`
-      );
+  let lastError = "Error desconocido de Gemini.";
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      // Backoff exponencial con jitter: ~1s, 2s, 4s entre reintentos.
+      await sleep(1000 * 2 ** (attempt - 1) + Math.random() * 400);
     }
-    throw new Error(`Error de red al llamar a Gemini: ${e?.message ?? e}`);
-  } finally {
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        }
+      );
+    } catch (e: any) {
+      clearTimeout(timeout);
+      // Timeout o error de red: transitorios, reintentar.
+      lastError =
+        e?.name === "AbortError"
+          ? `Gemini no respondió en ${REQUEST_TIMEOUT_MS / 1000}s.`
+          : `Error de red al llamar a Gemini: ${e?.message ?? e}`;
+      continue;
+    }
     clearTimeout(timeout);
-  }
 
-  if (!response.ok) {
+    if (response.ok) {
+      const json = await response.json();
+      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) {
+        throw new Error("La respuesta de la API no contiene texto.");
+      }
+      return text as string;
+    }
+
     const errorText = await response.text();
-    throw new Error(`Error de Gemini (${response.status}): ${errorText}`);
+    lastError = `Error de Gemini (${response.status}): ${errorText}`;
+    // Errores no recuperables (clave inválida, modelo inexistente, request mal
+    // formado): fallar de inmediato, no tiene sentido reintentar.
+    if (!RETRYABLE_STATUS.has(response.status)) {
+      throw new Error(lastError);
+    }
+    // Recuperable (503/429/5xx): el loop reintenta con backoff.
   }
 
-  const json = await response.json();
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error("La respuesta de la API no contiene texto.");
-  }
-  return text as string;
+  throw new Error(
+    `Gemini está saturado ahora mismo (se reintentó ${MAX_ATTEMPTS} veces). ${lastError} Intenta de nuevo en un momento.`
+  );
 }
 
 // Visión + JSON estructurado: envía la imagen inline y pide salida conforme a un
