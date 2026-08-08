@@ -11,6 +11,7 @@ import MealsScreen from "./src/screens/MealsScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { AuthProvider, useAuth } from "./src/lib/auth";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 
 const Tab = createBottomTabNavigator();
 
@@ -60,12 +61,14 @@ function RootNavigator() {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <RootNavigator />
-      </AuthProvider>
-      <StatusBar style="auto" />
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
+        <StatusBar style="auto" />
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 
