@@ -107,14 +107,16 @@ create policy "patients manage own lifestyle metrics" on lifestyle_metrics
   for all using (auth.uid() = patient_id) with check (auth.uid() = patient_id);
 
 -- ============================================================
--- BASE DE CONOCIMIENTO COMPARTIDA
--- Visible y enriquecible por cualquier paciente autenticado.
--- No lleva patient_id: la evidencia científica no es de nadie en particular.
+-- BASE DE CONOCIMIENTO COMPARTIDA (POR PACIENTE)
+-- Cada paciente tiene su propia copia de la base de conocimiento
+-- para prevenir filtraciones de datos en caso de multi-tenancy.
+-- Scoped por patient_id via RLS — solo el dueño puede leer/escribir.
 -- ============================================================
 
 create table if not exists knowledge_chunks (
   id bigint generated always as identity primary key,
-  slug text not null unique,
+  patient_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  slug text not null,
   title text not null,
   authors text not null,
   year integer,
@@ -124,16 +126,15 @@ create table if not exists knowledge_chunks (
   text text not null,
   embedding jsonb not null,
   curated boolean not null default true,
-  created_at_ms bigint not null default (extract(epoch from now()) * 1000)
+  created_at_ms bigint not null default (extract(epoch from now()) * 1000),
+  unique (patient_id, slug)
 );
+create index if not exists idx_knowledge_chunks_patient on knowledge_chunks (patient_id);
 
 alter table knowledge_chunks enable row level security;
 
-create policy "any authenticated user can read knowledge" on knowledge_chunks
-  for select using (auth.role() = 'authenticated');
-
-create policy "any authenticated user can add knowledge" on knowledge_chunks
-  for insert with check (auth.role() = 'authenticated');
+create policy "patients manage own knowledge" on knowledge_chunks
+  for all using (auth.uid() = patient_id) with check (auth.uid() = patient_id);
 
 -- ============================================================
 -- SINCRONIZACIÓN AUTOMÁTICA (LibreLinkUp / Ultrahuman) — server-side
