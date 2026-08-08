@@ -1,144 +1,120 @@
-/**
- * Unified retry logic for external API calls with timeout and exponential backoff.
- * Used by: LibreLink sync (server-side), Gemini embeddings, PubMed, OCR.space.
- *
- * Configuration is sensible for most external APIs but can be customized per call.
- */
+// Shared retry + timeout logic for resilient network requests
+// Used by: gemini.ts, sync-health-data Edge Function, and other API clients
 
-export interface RetryConfig {
-  timeoutMs?: number;
-  maxAttempts?: number;
-  initialBackoffMs?: number;
-  backoffMultiplier?: number;
-  retryableStatuses?: Set<number>;
-}
+export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000; // 60 seconds
+export const DEFAULT_MAX_ATTEMPTS = 4;
+export const DEFAULT_INITIAL_BACKOFF_MS = 1_000;
+export const DEFAULT_BACKOFF_MULTIPLIER = 2;
+export const DEFAULT_MAX_BACKOFF_MS = 32_000;
 
-const DEFAULT_CONFIG: Required<RetryConfig> = {
-  timeoutMs: 30_000,
-  maxAttempts: 4,
-  initialBackoffMs: 1000,
-  backoffMultiplier: 2,
-  retryableStatuses: new Set([429, 500, 502, 503, 504]),
-};
+// HTTP status codes that are transient (safe to retry)
+export const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface FetchWithRetryOptions {
+  timeoutMs?: number;
+  maxAttempts?: number;
+  initialBackoffMs?: number;
+  backoffMultiplier?: number;
+  maxBackoffMs?: number;
+  retryableStatuses?: Set<number>;
+}
+
+export interface FetchRetryError extends Error {
+  lastHttpStatus?: number;
+  attemptsExhausted: boolean;
+}
+
 /**
- * Fetch with automatic retry, timeout, and exponential backoff.
+ * Fetch with automatic retry on transient errors and timeout handling.
  *
  * Retries on:
- * - Network errors (timeout, connection reset)
- * - HTTP 429 (Rate Limit)
- * - HTTP 5xx (Server Errors)
+ * - Network timeouts (AbortController signal)
+ * - Transient HTTP errors (429, 5xx)
  *
  * Does NOT retry on:
- * - HTTP 4xx except 429 (client errors are permanent)
- * - Successful responses (2xx, 3xx)
+ * - Non-transient errors (400, 401, 403, 404)
+ * - Fatal errors (auth, malformed request)
  *
- * @example
- * const response = await fetchWithRetry('https://api.example.com/data', {
- *   method: 'GET',
- *   headers: { 'Authorization': 'Bearer token' },
- * });
+ * @param url Request URL
+ * @param options Request init options
+ * @param config Retry configuration
+ * @returns Response object
+ * @throws FetchRetryError if all retries exhausted or non-transient error occurs
  */
 export async function fetchWithRetry(
   url: string,
-  init?: RequestInit,
-  config: RetryConfig = {}
+  options: RequestInit,
+  config: FetchWithRetryOptions = {}
 ): Promise<Response> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
-  let lastError: Error | null = null;
-  let backoffMs = cfg.initialBackoffMs;
+  const timeoutMs = config.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const maxAttempts = config.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  const initialBackoffMs = config.initialBackoffMs ?? DEFAULT_INITIAL_BACKOFF_MS;
+  const backoffMultiplier = config.backoffMultiplier ?? DEFAULT_BACKOFF_MULTIPLIER;
+  const maxBackoffMs = config.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
+  const retryableStatuses = config.retryableStatuses ?? TRANSIENT_STATUS;
 
-  for (let attempt = 0; attempt < cfg.maxAttempts; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), cfg.timeoutMs);
+  let lastError: FetchRetryError | null = null;
+  let backoffMs = initialBackoffMs;
 
-      let response: Response;
-      try {
-        response = await fetch(url, { ...init, signal: controller.signal });
-        clearTimeout(timeoutId);
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      // Non-transient response, return immediately
-      if (!cfg.retryableStatuses.has(response.status)) {
-        return response;
-      }
-
-      // Transient error, retry if not last attempt
-      lastError = new Error(
-        `HTTP ${response.status} (transient, attempt ${attempt + 1}/${cfg.maxAttempts})`
-      );
-      if (attempt === cfg.maxAttempts - 1) {
-        return response;
-      }
-    } catch (e) {
-      // Network error (timeout, connection reset, etc.)
-      const isTimeout = e instanceof Error && e.message?.includes("AbortError");
-      lastError = new Error(
-        isTimeout
-          ? `Timeout after ${cfg.timeoutMs / 1000}s (attempt ${attempt + 1}/${cfg.maxAttempts})`
-          : `Network error (attempt ${attempt + 1}/${cfg.maxAttempts}): ${
-              e instanceof Error ? e.message : String(e)
-            }`
-      );
-
-      if (attempt === cfg.maxAttempts - 1) {
-        throw lastError;
-      }
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      // Exponential backoff with jitter to avoid thundering herd
+      const jitter = Math.random() * 400;
+      const delay = Math.min(backoffMs + jitter, maxBackoffMs);
+      await sleep(delay);
+      backoffMs = Math.min(backoffMs * backoffMultiplier, maxBackoffMs);
     }
 
-    // Exponential backoff before retry
-    if (attempt < cfg.maxAttempts - 1) {
-      await sleep(backoffMs);
-      backoffMs = Math.min(backoffMs * cfg.backoffMultiplier, 32_000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      // Non-transient error: fail immediately without retrying
+      if (!retryableStatuses.has(response.status)) {
+        return response;
+      }
+
+      // Transient error: prepare to retry if attempts remain
+      const error: FetchRetryError = new Error(
+        `HTTP ${response.status} (transient, attempt ${attempt + 1}/${maxAttempts})`
+      ) as FetchRetryError;
+      error.lastHttpStatus = response.status;
+      error.attemptsExhausted = attempt === maxAttempts - 1;
+      lastError = error;
+
+      if (attempt === maxAttempts - 1) {
+        return response; // Return the last response after all retries
+      }
+    } catch (e) {
+      clearTimeout(timeoutId);
+
+      const message =
+        e instanceof Error
+          ? `Network error (attempt ${attempt + 1}/${maxAttempts}): ${e.message}`
+          : `Network error (attempt ${attempt + 1}/${maxAttempts})`;
+
+      const error: FetchRetryError = new Error(message) as FetchRetryError;
+      error.attemptsExhausted = attempt === maxAttempts - 1;
+      lastError = error;
+
+      if (attempt === maxAttempts - 1) {
+        throw error;
+      }
     }
   }
 
-  throw lastError || new Error("Fetch failed after retries");
-}
-
-/**
- * Convenience wrapper for POST requests with retry
- */
-export async function postWithRetry(
-  url: string,
-  body: any,
-  headers: HeadersInit = {},
-  config?: RetryConfig
-): Promise<Response> {
-  const contentType =
-    typeof body === "string" ? "text/plain" : "application/json";
-  return fetchWithRetry(
-    url,
-    {
-      method: "POST",
-      headers: { "content-type": contentType, ...headers },
-      body: typeof body === "string" ? body : JSON.stringify(body),
-    },
-    config
-  );
-}
-
-/**
- * Convenience wrapper for GET requests with retry
- */
-export async function getWithRetry(
-  url: string,
-  headers?: HeadersInit,
-  config?: RetryConfig
-): Promise<Response> {
-  return fetchWithRetry(
-    url,
-    {
-      method: "GET",
-      headers,
-    },
-    config
+  throw (
+    lastError ||
+    new Error(`Fetch failed after ${maxAttempts} attempts`)
   );
 }
