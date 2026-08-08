@@ -13,9 +13,11 @@ import { KnowledgeGraph, type PaperNode, type ActivationResult, type PaperEdge, 
 import { supabase } from "./supabase";
 
 const BATCH_SIZE = 10;
-const LIVE_FALLBACK_SCORE_THRESHOLD = 0.55;
-const LIVE_FALLBACK_MAX_RESULTS = 3;
+const LIVE_FALLBACK_SCORE_THRESHOLD = 0.3; // Lowered from 0.55 to enable live search for most queries
+const LIVE_FALLBACK_MAX_RESULTS = 10; // Increased from 3 to get more recent papers
 const LIVE_SUMMARY_MAX_CHARS = 800;
+const RECENCY_BOOST_THRESHOLD_YEAR = 2024; // Boost papers from 2024 onwards
+const RECENCY_BOOST_FACTOR = 1.15; // 15% boost to recent papers
 
 // Phase 3: Patient preferences for personalized evidence discovery
 export interface PatientPreferences {
@@ -65,6 +67,7 @@ export async function ingestCorpus(
 }
 
 async function fetchLiveResults(query: string): Promise<KnowledgeSearchResult[]> {
+  // Fetch more recent papers from PubMed (sorted by pub_date, not relevance)
   const articles = await searchPubMedLive(query, LIVE_FALLBACK_MAX_RESULTS);
   if (articles.length === 0) return [];
 
@@ -116,10 +119,15 @@ export async function searchKnowledge(
   const [queryEmbedding] = await embedTexts([query], "query");
 
   let localResults: KnowledgeSearchResult[] = chunks
-    .map((chunk) => ({
-      ...chunk,
-      score: cosineSimilarity(queryEmbedding, chunk.embedding),
-    }))
+    .map((chunk) => {
+      const semanticScore = cosineSimilarity(queryEmbedding, chunk.embedding);
+      // Boost recent papers (2024+) to prioritize current medical literature
+      const recencyBoost = chunk.year >= RECENCY_BOOST_THRESHOLD_YEAR ? RECENCY_BOOST_FACTOR : 1.0;
+      return {
+        ...chunk,
+        score: semanticScore * recencyBoost,
+      };
+    })
     .sort((a, b) => b.score - a.score);
 
   const topScore = localResults[0]?.score ?? 0;

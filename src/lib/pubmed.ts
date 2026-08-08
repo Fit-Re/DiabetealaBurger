@@ -58,13 +58,13 @@ function parseArticle(xml: string): PubMedArticle | null {
 
 export async function searchPubMedLive(
   query: string,
-  maxResults: number = 3
+  maxResults: number = 10
 ): Promise<PubMedArticle[]> {
   const searchParams = new URLSearchParams({
     db: "pubmed",
     term: query,
     retmax: String(maxResults),
-    sort: "relevance",
+    sort: "pub_date", // Prioritize most recent papers (not "relevance")
     retmode: "json",
   });
   const searchResponse = await getWithRetry(`${EUTILS_BASE}/esearch.fcgi?${searchParams}`);
