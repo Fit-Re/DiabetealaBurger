@@ -220,6 +220,7 @@ export interface KnowledgeCorpusEntry {
 export interface KnowledgeChunk extends KnowledgeCorpusEntry {
   rowId: number;
   embedding: number[];
+  embeddingNorm: number;
   curated: boolean;
   createdAtMs: number;
 }

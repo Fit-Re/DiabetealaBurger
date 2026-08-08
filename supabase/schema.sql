@@ -125,6 +125,7 @@ create table if not exists knowledge_chunks (
   topic text not null,
   text text not null,
   embedding jsonb not null,
+  embedding_norm real not null default 0,
   curated boolean not null default true,
   created_at_ms bigint not null default (extract(epoch from now()) * 1000),
   unique (patient_id, slug)

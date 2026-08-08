@@ -120,6 +120,28 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+export function computeEmbeddingNorm(embedding: number[]): number {
+  let sumSquares = 0;
+  for (let i = 0; i < embedding.length; i++) {
+    sumSquares += embedding[i] * embedding[i];
+  }
+  return Math.sqrt(sumSquares);
+}
+
+export function cosineSimilarityWithNorms(
+  queryEmbedding: number[],
+  queryNorm: number,
+  storedEmbedding: number[],
+  storedNorm: number
+): number {
+  if (queryNorm === 0 || storedNorm === 0) return 0;
+  let dot = 0;
+  for (let i = 0; i < queryEmbedding.length; i++) {
+    dot += queryEmbedding[i] * storedEmbedding[i];
+  }
+  return dot / (queryNorm * storedNorm);
+}
+
 /**
  * Get embedding for a single query string
  * Phase 3: Semantic search using query embeddings

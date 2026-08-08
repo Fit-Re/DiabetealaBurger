@@ -8,7 +8,7 @@ import {
 import { KNOWLEDGE_CORPUS } from "../data/knowledgeCorpus";
 import { searchPubMedLive } from "./pubmed";
 import type { KnowledgeSearchResult } from "../types";
-import { cosineSimilarity, embedTexts } from "./gemini";
+import { cosineSimilarity, cosineSimilarityWithNorms, computeEmbeddingNorm, embedTexts } from "./gemini";
 import { KnowledgeGraph, type PaperNode, type ActivationResult, type PaperEdge, type EdgeType } from "./knowledgeGraph";
 import { supabase } from "./supabase";
 
@@ -76,11 +76,13 @@ async function fetchLiveResults(query: string): Promise<KnowledgeSearchResult[]>
     [query, ...summaries],
     "query"
   );
+  const queryNorm = computeEmbeddingNorm(queryEmbedding);
 
   const results: KnowledgeSearchResult[] = [];
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i];
     const embedding = articleEmbeddings[i];
+    const embeddingNorm = computeEmbeddingNorm(embedding);
     const entry = {
       id: `pubmed-${article.pmid}`,
       title: article.title,
@@ -96,9 +98,10 @@ async function fetchLiveResults(query: string): Promise<KnowledgeSearchResult[]>
       ...entry,
       rowId: -1,
       embedding,
+      embeddingNorm,
       curated: false,
       createdAtMs: Date.now(),
-      score: cosineSimilarity(queryEmbedding, embedding),
+      score: cosineSimilarityWithNorms(queryEmbedding, queryNorm, embedding, embeddingNorm),
     });
   }
   return results;
@@ -117,10 +120,16 @@ export async function searchKnowledge(
 
   const chunks = await getAllKnowledgeChunks();
   const [queryEmbedding] = await embedTexts([query], "query");
+  const queryNorm = computeEmbeddingNorm(queryEmbedding);
 
   let localResults: KnowledgeSearchResult[] = chunks
     .map((chunk) => {
-      const semanticScore = cosineSimilarity(queryEmbedding, chunk.embedding);
+      const semanticScore = cosineSimilarityWithNorms(
+        queryEmbedding,
+        queryNorm,
+        chunk.embedding,
+        chunk.embeddingNorm
+      );
       // Boost recent papers (2024+) to prioritize current medical literature
       const recencyBoost = chunk.year >= RECENCY_BOOST_THRESHOLD_YEAR ? RECENCY_BOOST_FACTOR : 1.0;
       return {
