@@ -7,7 +7,7 @@ import {
   getPatientProfile,
 } from "../db/database";
 import { detectPatterns } from "./patterns";
-import { searchKnowledge } from "./knowledgeBase";
+import { searchViaGraph, computePatternComplexity, initializeKnowledgeGraph } from "./knowledgeBase";
 import { getEmbeddingApiKey } from "./gemini";
 import { supabase } from "./supabase";
 import { notifyPatternFinding } from "./notifications";
@@ -142,10 +142,10 @@ export async function runPatternAnalysis(): Promise<PatternFinding[]> {
 
 // Enriquecimiento OPCIONAL con literatura médica: solo si hay API key de
 // embeddings configurada. Recibe los patrones ya detectados para no
-// recalcularlos. searchKnowledge inserta lo que encuentra en knowledge_chunks
-// (marcado "no revisado" si viene de PubMed en vivo), así la biblioteca crece
-// con cada uso real. Sin key no hace nada: sin embeddings no hay forma de buscar
-// ni insertar resultados con sentido. Nunca lanza.
+// recalcularlos. searchViaGraph() usa el Knowledge Neural Network para buscar
+// papers relacionados y mostrar activation paths. Sin key no hace nada: sin
+// embeddings no hay forma de buscar ni insertar resultados con sentido.
+// Nunca lanza.
 export async function runBackgroundEnrichment(
   patterns: PatternFinding[]
 ): Promise<void> {
@@ -153,14 +153,42 @@ export async function runBackgroundEnrichment(
     const key = await getEmbeddingApiKey();
     if (!key) return;
 
+    // Initialize knowledge graph if not already done
+    await initializeKnowledgeGraph();
+
+    // Extract pattern complexity for adaptive graph propagation
+    const severities = patterns.map((p) => p.severity);
+    const { complexity, depth } = computePatternComplexity(patterns.length, severities);
+
+    // Average severity: convert severity labels to scores
+    const severityScores: number[] = severities.map((s) => {
+      switch (s) {
+        case "info":
+          return 0.3;
+        case "watch":
+          return 0.6;
+        case "attention":
+          return 1.0;
+        default:
+          return 0.5;
+      }
+    });
+    const avgSeverity: number =
+      severityScores.length > 0
+        ? severityScores.reduce((a, b) => a + b) / severityScores.length
+        : 0.5;
+
+    // Search via knowledge graph for each pattern
     for (const pattern of patterns.slice(0, MAX_PATTERNS_TO_ENRICH)) {
-      await searchKnowledge(pattern.suggestedQuery, {
-        topK: 3,
-        allowLiveFallback: true,
-      });
+      await searchViaGraph(
+        pattern.suggestedQuery,
+        patterns.length,
+        avgSeverity,
+        5 // topK: 5 papers with activation paths
+      );
     }
   } catch {
-    // Enriquecimiento oportunista: sin conexión, PubMed caído, etc. no deben
+    // Enriquecimiento oportunista: sin conexión, red caída, etc. no deben
     // afectar el flujo principal de la app.
   }
 }

@@ -8,7 +8,8 @@ import { KNOWLEDGE_CORPUS } from "../data/knowledgeCorpus";
 import { searchPubMedLive } from "./pubmed";
 import type { KnowledgeSearchResult } from "../types";
 import { cosineSimilarity, embedTexts } from "./gemini";
-import { KnowledgeGraph, type PaperNode, type ActivationResult } from "./knowledgeGraph";
+import { KnowledgeGraph, type PaperNode, type ActivationResult, type PaperEdge, type EdgeType } from "./knowledgeGraph";
+import { supabase } from "./supabase";
 
 const BATCH_SIZE = 10;
 const LIVE_FALLBACK_SCORE_THRESHOLD = 0.55;
@@ -148,7 +149,7 @@ export async function initializeKnowledgeGraph(): Promise<void> {
 
   // Convert chunks to PaperNode format
   const papers: PaperNode[] = chunks.map((chunk) => ({
-    id: chunk.slug,
+    id: chunk.id,
     title: chunk.title,
     authors: chunk.authors,
     year: chunk.year,
@@ -162,12 +163,29 @@ export async function initializeKnowledgeGraph(): Promise<void> {
     summary: chunk.summary,
   }));
 
-  // TODO: Fetch paper_relationships from Supabase and pass to loadGraph
-  // For now, initialize with papers only (edges will be loaded later)
-  graph.loadGraph(papers, []);
+  // Load paper relationships from Supabase
+  const { data: relations, error } = await supabase
+    .from("paper_relationships")
+    .select("paper_id_a, paper_id_b, edge_type, weight, reasoning");
 
+  const edges: PaperEdge[] = [];
+  if (!error && relations) {
+    edges.push(
+      ...relations.map((r: any) => ({
+        sourcePaperId: r.paper_id_a,
+        targetPaperId: r.paper_id_b,
+        edgeType: r.edge_type as EdgeType,
+        weight: r.weight,
+        reasoning: r.reasoning || "",
+      }))
+    );
+  }
+
+  graph.loadGraph(papers, edges);
   knowledgeGraphInstance = graph;
-  console.log(`✓ Knowledge graph initialized with ${papers.length} papers`);
+  console.log(
+    `✓ Knowledge graph initialized with ${papers.length} papers, ${edges.length} edges`
+  );
 }
 
 /**
@@ -197,9 +215,9 @@ export async function searchViaGraph(
     console.warn("Knowledge graph not initialized; falling back to linear search");
     const linear = await searchKnowledge(query, { topK });
     return linear.map((r) => ({
-      paperId: r.slug,
+      paperId: r.id,
       paper: {
-        id: r.slug,
+        id: r.id,
         title: r.title,
         authors: r.authors,
         year: r.year,
@@ -213,7 +231,7 @@ export async function searchViaGraph(
         summary: r.summary,
       },
       activationScore: r.score,
-      path: [r.slug],
+      path: [r.id],
       hopCount: 0,
       confidence: r.score > 0.7 ? ("strong" as const) : ("moderate" as const),
     }));
@@ -230,15 +248,16 @@ export function computePatternComplexity(
   patternCount: number,
   severities: ("info" | "watch" | "attention")[]
 ): { complexity: number; depth: number } {
-  const severityScores = severities.map((s) => {
+  const severityScores: number[] = severities.map((s) => {
     switch (s) {
       case "info": return 0.3;
       case "watch": return 0.6;
       case "attention": return 1.0;
+      default: return 0.5;
     }
   });
 
-  const avgSeverity = severityScores.length > 0
+  const avgSeverity: number = severityScores.length > 0
     ? severityScores.reduce((a, b) => a + b) / severityScores.length
     : 0.5;
 

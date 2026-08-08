@@ -25,16 +25,16 @@ import {
 } from "../db/database";
 import { addDays, isSameDay, startOfDay } from "../lib/dateTimeUtils";
 import { detectPatterns } from "../lib/patterns";
-import { searchKnowledge } from "../lib/knowledgeBase";
+import { searchViaGraph, initializeKnowledgeGraph, computePatternComplexity } from "../lib/knowledgeBase";
 import { synthesizeEvidence } from "../lib/geminiVision";
 import type { EvidenceSynthesis } from "../lib/geminiVision";
 import type {
   GlucoseReading,
-  KnowledgeSearchResult,
   LifestyleMetric,
   PatientProfile,
   PatternFinding,
 } from "../types";
+import type { ActivationResult } from "../lib/knowledgeGraph";
 import { TARGET_RANGE, TREND_LABELS } from "../types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -390,7 +390,7 @@ const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], st
 function PatternCard({ pattern }: { pattern: PatternFinding }) {
   const [expanded, setExpanded] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [evidence, setEvidence] = useState<KnowledgeSearchResult[] | null>(null);
+  const [evidence, setEvidence] = useState<ActivationResult[] | null>(null);
   const [synthesizing, setSynthesizing] = useState(false);
   const [synthesis, setSynthesis] = useState<EvidenceSynthesis | null>(null);
 
@@ -400,7 +400,17 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
     if (next && evidence === null) {
       setSearching(true);
       try {
-        const found = await searchKnowledge(pattern.suggestedQuery, { topK: 4 });
+        // Initialize knowledge graph if not already done
+        await initializeKnowledgeGraph();
+
+        // Use graph-based search with pattern severity
+        const { complexity } = computePatternComplexity(1, [pattern.severity]);
+        const found = await searchViaGraph(
+          pattern.suggestedQuery,
+          1,
+          pattern.severity === "attention" ? 1.0 : pattern.severity === "watch" ? 0.6 : 0.3,
+          4 // topK: 4 papers with activation paths
+        );
         setEvidence(found);
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo buscar evidencia relacionada.");
@@ -448,12 +458,18 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
         <View style={styles.patternEvidence}>
           {searching && <ActivityIndicator style={{ marginTop: 8 }} />}
           {evidence?.map((e) => (
-            <View key={`${e.id}-${e.rowId}`} style={styles.evidenceCard}>
+            <View key={e.paperId} style={styles.evidenceCard}>
               <Text style={styles.evidenceTitle}>
-                {e.title} {e.curated ? "" : "· 🔴 no revisado (PubMed en vivo)"}
+                {e.paper.title} {e.paper.curated ? "" : "· 🔴 no revisado (PubMed en vivo)"}
               </Text>
               <Text style={styles.evidenceMeta}>
-                {e.authors} ({e.year || "s/f"}) · {e.source}
+                {e.paper.authors} ({e.paper.year || "s/f"}) · {e.paper.source}
+              </Text>
+              <Text style={styles.evidenceMeta}>
+                Confianza: {e.confidence.toUpperCase()} ({(e.activationScore * 100).toFixed(0)}%)
+              </Text>
+              <Text style={styles.evidenceMeta}>
+                Ruta: {e.path.join(" → ")}
               </Text>
             </View>
           ))}

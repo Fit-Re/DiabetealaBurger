@@ -137,6 +137,9 @@ async function callGeminiTextJson(
   return extractJson(text);
 }
 
+// Import types for graph-based search
+import type { ActivationResult } from "./knowledgeGraph";
+
 function extractJson(text: string): any {
   const cleaned = text
     .trim()
@@ -391,20 +394,33 @@ export interface EvidenceSynthesis {
 
 function buildEvidenceSynthesisPrompt(
   query: string,
-  chunks: KnowledgeSearchResult[]
+  activationResults: ActivationResult[]
 ): string {
-  const sourcesBlock = chunks
-    .map((c, i) => {
-      const tag = c.curated ? "[curado]" : "[PubMed en vivo, NO revisado manualmente]";
-      return `${i + 1}. ${tag} "${c.title}" — ${c.authors} (${c.year || "s/f"}), ${c.source}.\nResumen: ${c.summary}`;
+  const sourcesBlock = activationResults
+    .map((result, i) => {
+      const paper = result.paper;
+      const tag = paper.curated ? "[curado]" : "[PubMed en vivo, NO revisado manualmente]";
+      const pathStr = result.path.join(" → ");
+      const confidenceLabel = result.confidence.toUpperCase();
+
+      return `${i + 1}. ${tag} "${paper.title}" — ${paper.authors} (${paper.year || "s/f"}), ${paper.source}.
+   Confianza: ${confidenceLabel} (score: ${(result.activationScore * 100).toFixed(0)}%)
+   Ruta de activación: ${pathStr}
+   Resumen: ${paper.summary}`;
     })
     .join("\n\n");
 
-  return `Eres un asistente clínico que ayuda a un paciente con diabetes tipo 1 a entender un patrón que observó en sus propios registros (glucosa, comida, medicamentos, estilo de vida). Tienes disponibles los siguientes fragmentos de evidencia recuperados para su consulta. Algunos son de un corpus curado manualmente (guías ADA/ISPAD/ATTD y papers seleccionados); otros vienen de una búsqueda en vivo en PubMed y NO han sido revisados por un humano — trátalos con más cautela.
+  return `Eres un asistente clínico que ayuda a un paciente con diabetes tipo 1 a entender un patrón que observó en sus propios registros (glucosa, comida, medicamentos, estilo de vida). Tienes disponibles los siguientes fragmentos de evidencia, recuperados y clasificados por un grafo de conocimiento que evalúa similitud semántica y relaciones entre papers.
+
+Cada fuente incluye:
+- Una RUTA DE ACTIVACIÓN que muestra cómo fue encontrada (a través de qué papers intermedios)
+- Una puntuación de CONFIANZA (strong/moderate/limited) basada en la distancia en el grafo y el peso de la evidencia
+
+Algunos papers son de un corpus curado manualmente (guías ADA/ISPAD/ATTD); otros vienen de búsqueda en vivo en PubMed y NO han sido revisados por un humano — trátalos con más cautela.
 
 Patrón/consulta del paciente: "${query}"
 
-Fragmentos de evidencia disponibles:
+Fragmentos de evidencia disponibles (ordenados por confianza y relevancia):
 ${sourcesBlock}
 
 Devuelve ÚNICAMENTE un objeto JSON (sin texto adicional, sin markdown) con esta forma exacta:
@@ -414,12 +430,13 @@ Devuelve ÚNICAMENTE un objeto JSON (sin texto adicional, sin markdown) con esta
   "management": "<puntos de manejo/estilo de vida a considerar y discutir con su equipo médico, basados en los fragmentos, citando autor/año>",
   "likelyOutcome": "<qué sugiere la evidencia sobre el resultado probable si el patrón continúa o si se aplican los ajustes discutidos, citando autor/año>",
   "evidenceStrength": "strong" | "moderate" | "limited",
-  "caveats": "<advertencias sobre limitaciones de la evidencia, ej. estudios pequeños, fuentes no revisadas, o null si no aplica>"
+  "caveats": "<advertencias sobre limitaciones de la evidencia, incluir si muchas fuentes vienen de PubMed en vivo (no revisadas), o null si no aplica>"
 }
 
 Reglas estrictas:
 - Basa cada afirmación SOLO en los fragmentos proporcionados. No inventes estudios ni cifras que no estén ahí.
 - Si un fragmento es de PubMed en vivo (no revisado), dilo explícitamente al citarlo y refleja esa incertidumbre en "evidenceStrength" y "caveats".
+- Favorece paperscon CONFIANZA "strong" al construir el análisis principal.
 - NUNCA prescribas una dosis exacta de insulina o medicamento. Enmarca "management" como temas y preguntas concretas para llevar al médico, no como instrucciones de tratamiento.
 - Si la evidencia disponible es insuficiente para responder con confianza, dilo claramente en "caveats" en vez de rellenar con suposiciones.
 - Responde en español, de forma clara y directa, sin jerga innecesaria.`;
@@ -439,12 +456,12 @@ const EVIDENCE_SCHEMA = {
 
 export async function synthesizeEvidence(
   query: string,
-  chunks: KnowledgeSearchResult[]
+  activationResults: ActivationResult[]
 ): Promise<EvidenceSynthesis> {
-  if (chunks.length === 0) {
+  if (activationResults.length === 0) {
     throw new Error("No hay fragmentos de evidencia para sintetizar.");
   }
-  const prompt = buildEvidenceSynthesisPrompt(query, chunks);
+  const prompt = buildEvidenceSynthesisPrompt(query, activationResults);
   const parsed = await callGeminiTextJson(prompt, EVIDENCE_SCHEMA);
 
   return {
@@ -454,4 +471,49 @@ export async function synthesizeEvidence(
     evidenceStrength: parsed.evidenceStrength ?? "limited",
     caveats: parsed.caveats ?? null,
   };
+}
+
+/**
+ * Backward compatibility: searchResults can also be KnowledgeSearchResult[]
+ * This function auto-detects and converts if needed
+ */
+export async function synthesizeEvidenceCompat(
+  query: string,
+  results: ActivationResult[] | KnowledgeSearchResult[]
+): Promise<EvidenceSynthesis> {
+  // Check if it's ActivationResult[]
+  if (
+    results.length > 0 &&
+    "paper" in results[0] &&
+    "activationScore" in results[0]
+  ) {
+    return synthesizeEvidence(query, results as ActivationResult[]);
+  }
+
+  // Fallback: convert KnowledgeSearchResult[] to ActivationResult[]
+  const converted: ActivationResult[] = (
+    results as KnowledgeSearchResult[]
+  ).map((r: any) => ({
+    paperId: r.slug || r.id,
+    paper: {
+      id: r.slug || r.id,
+      title: r.title,
+      authors: r.authors,
+      year: r.year,
+      source: r.source,
+      url: r.url,
+      topics: r.topic ? [r.topic] : [],
+      evidenceLevel: "observational" as const,
+      sampleSize: null,
+      embedding: r.embedding,
+      curated: r.curated,
+      summary: r.summary,
+    },
+    activationScore: r.score || 0.5,
+    path: [(r.slug || r.id) as string],
+    hopCount: 0,
+    confidence: (r.score || 0.5) > 0.7 ? ("strong" as const) : ("moderate" as const),
+  }));
+
+  return synthesizeEvidence(query, converted);
 }

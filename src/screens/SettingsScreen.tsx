@@ -21,10 +21,13 @@ import {
   getCorpusSize,
   getIngestedCount,
   ingestCorpus,
-  searchKnowledge,
+  searchViaGraph,
+  initializeKnowledgeGraph,
+  computePatternComplexity,
 } from "../lib/knowledgeBase";
 import type { IngestProgress } from "../lib/knowledgeBase";
-import type { DiabetesType, Hba1cReading, KnowledgeSearchResult } from "../types";
+import type { DiabetesType, Hba1cReading } from "../types";
+import type { ActivationResult } from "../lib/knowledgeGraph";
 import { TARGET_RANGE } from "../types";
 import {
   deleteAllKnowledgeChunks,
@@ -756,7 +759,7 @@ const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], st
 function KnowledgeSearchTestSection() {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState<KnowledgeSearchResult[] | null>(null);
+  const [results, setResults] = useState<ActivationResult[] | null>(null);
   const [synthesizing, setSynthesizing] = useState(false);
   const [synthesis, setSynthesis] = useState<EvidenceSynthesis | null>(null);
 
@@ -766,7 +769,12 @@ function KnowledgeSearchTestSection() {
     setResults(null);
     setSynthesis(null);
     try {
-      const found = await searchKnowledge(query.trim(), { topK: 5 });
+      // Initialize knowledge graph if not already done
+      await initializeKnowledgeGraph();
+
+      // Use graph-based search with adaptive propagation
+      const { complexity } = computePatternComplexity(1, ["watch"]);
+      const found = await searchViaGraph(query.trim(), 1, 0.6, 5);
       setResults(found);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo buscar en la base de conocimiento.");
@@ -817,15 +825,18 @@ function KnowledgeSearchTestSection() {
         <Text style={styles.description}>Sin resultados.</Text>
       )}
       {results?.map((r) => (
-        <View key={`${r.id}-${r.rowId}`} style={styles.resultCard}>
+        <View key={r.paperId} style={styles.resultCard}>
           <Text style={styles.resultTitle}>
-            {r.title} {r.curated ? "" : "· 🔴 no revisado (PubMed en vivo)"}
+            {r.paper.title} {r.paper.curated ? "" : "· 🔴 no revisado (PubMed en vivo)"}
           </Text>
           <Text style={styles.resultMeta}>
-            {r.authors} ({r.year || "s/f"}) · {r.source} · similitud{" "}
-            {r.score.toFixed(2)}
+            {r.paper.authors} ({r.paper.year || "s/f"}) · {r.paper.source} · Confianza:{" "}
+            {r.confidence.toUpperCase()} ({(r.activationScore * 100).toFixed(0)}%)
           </Text>
-          <Text style={styles.resultSummary}>{r.summary}</Text>
+          <Text style={styles.resultMeta}>
+            Ruta de activación: {r.path.join(" → ")}
+          </Text>
+          <Text style={styles.resultSummary}>{r.paper.summary}</Text>
         </View>
       ))}
 
