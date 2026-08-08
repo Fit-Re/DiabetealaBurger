@@ -364,13 +364,15 @@ export async function savePatientPreferences(
 /**
  * Search via graph with patient personalization
  * Uses patient's preferred depth, evidence level, and topic exclusions
+ * Phase 3 Week 3: Also adjusts ranking based on feedback history
  */
 export async function searchViaGraphPersonalized(
   query: string,
   patientId: string,
   patternCount: number = 1,
   avgSeverity: number = 1,
-  topK: number = 5
+  topK: number = 5,
+  patternId?: string  // Optional: for ranking adjustment with feedback
 ): Promise<ActivationResult[]> {
   if (!knowledgeGraphInstance) {
     console.warn("Knowledge graph not initialized");
@@ -389,7 +391,7 @@ export async function searchViaGraphPersonalized(
   );
 
   // Filter by patient preferences
-  const filtered = results.filter((result) => {
+  let filtered = results.filter((result) => {
     // Exclude topics if patient configured them
     if (
       preferences.excludeTopics.length > 0 &&
@@ -409,5 +411,145 @@ export async function searchViaGraphPersonalized(
     return true;
   });
 
+  // Phase 3 Week 3: Adjust ranking based on feedback history
+  if (patternId) {
+    filtered = await rankResultsWithFeedback(filtered, patientId, patternId);
+  }
+
   return filtered.slice(0, topK);
+}
+
+// ============================================================================
+// Pattern Memory: Feedback Loop (Phase 3 Week 3)
+// ============================================================================
+
+/**
+ * Record patient feedback about whether a paper was helpful
+ */
+export async function recordPatternFeedback(
+  patientId: string,
+  patternId: string,
+  paperId: string,
+  wasHelpful: boolean,
+  actionTaken?: string,
+  improvementScore?: number
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("pattern_evidence_feedback")
+      .upsert({
+        patient_id: patientId,
+        pattern_id: patternId,
+        paper_id: paperId,
+        was_helpful: wasHelpful,
+        action_taken: actionTaken ?? null,
+        improvement_score: improvementScore ?? null,
+        rated_at: Date.now(),
+      });
+
+    if (error) {
+      console.warn("Failed to record feedback:", error);
+    } else {
+      console.log(`✓ Feedback recorded: ${paperId} helpful=${wasHelpful}`);
+    }
+  } catch (e) {
+    console.warn("Error recording feedback:", e);
+  }
+}
+
+/**
+ * Rank results with patient feedback history
+ * Boosts papers that patient found helpful before
+ */
+async function rankResultsWithFeedback(
+  results: ActivationResult[],
+  patientId: string,
+  patternId: string
+): Promise<ActivationResult[]> {
+  try {
+    // Load feedback history for this patient
+    const { data: feedbackRecords, error } = await supabase
+      .from("pattern_evidence_feedback")
+      .select("paper_id, was_helpful, improvement_score")
+      .eq("patient_id", patientId)
+      .in(
+        "paper_id",
+        results.map((r) => r.paperId)
+      )
+      .eq("was_helpful", true);  // Only consider helpful ratings
+
+    if (error) {
+      console.warn("Failed to load feedback:", error);
+      return results;
+    }
+
+    if (!feedbackRecords || feedbackRecords.length === 0) {
+      return results;  // No feedback history, return as-is
+    }
+
+    // Create feedback map for quick lookup
+    const feedbackMap = new Map(
+      feedbackRecords.map((f: any) => [
+        f.paper_id,
+        { helpful: f.was_helpful, score: f.improvement_score },
+      ])
+    );
+
+    // Re-rank: boost papers patient found helpful
+    const reranked = results
+      .map((r) => {
+        const feedback = feedbackMap.get(r.paperId);
+        if (feedback?.helpful) {
+          // Boost by 20% if patient marked as helpful
+          r.activationScore *= 1.2;
+
+          // Additional boost if improvement was observed
+          if (feedback.score && feedback.score > 0) {
+            r.activationScore *= 1 + feedback.score * 0.1;  // +10%/20% per score level
+          }
+        }
+        return r;
+      })
+      .sort((a, b) => b.activationScore - a.activationScore);
+
+    return reranked;
+  } catch (e) {
+    console.warn("Error ranking with feedback:", e);
+    return results;  // Return unranked on error
+  }
+}
+
+/**
+ * Get feedback summary for a paper
+ * Useful for showing "X% of patients found this helpful"
+ */
+export async function getPatientPaperFeedback(
+  patientId: string,
+  paperId: string
+): Promise<{ wasHelpful: boolean | null; improvementScore: number | null } | null> {
+  try {
+    const { data, error } = await supabase
+      .from("pattern_evidence_feedback")
+      .select("was_helpful, improvement_score")
+      .eq("patient_id", patientId)
+      .eq("paper_id", paperId)
+      .single();
+
+    if (error?.code === "PGRST116") {
+      return null;  // No feedback recorded
+    }
+
+    if (error) {
+      console.warn("Error fetching feedback:", error);
+      return null;
+    }
+
+    return {
+      wasHelpful: data?.was_helpful ?? null,
+      improvementScore: data?.improvement_score ?? null,
+    };
+  } catch (e) {
+    console.warn("Error getting feedback:", e);
+    return null;
+  }
 }

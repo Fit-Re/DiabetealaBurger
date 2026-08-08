@@ -25,7 +25,7 @@ import {
 } from "../db/database";
 import { addDays, isSameDay, startOfDay } from "../lib/dateTimeUtils";
 import { detectPatterns } from "../lib/patterns";
-import { searchViaGraph, initializeKnowledgeGraph, computePatternComplexity, searchViaGraphPersonalized } from "../lib/knowledgeBase";
+import { searchViaGraph, initializeKnowledgeGraph, computePatternComplexity, searchViaGraphPersonalized, recordPatternFeedback, getPatientPaperFeedback } from "../lib/knowledgeBase";
 import { synthesizeEvidence } from "../lib/geminiVision";
 import type { EvidenceSynthesis } from "../lib/geminiVision";
 import type {
@@ -395,6 +395,7 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
   const [evidence, setEvidence] = useState<ActivationResult[] | null>(null);
   const [synthesizing, setSynthesizing] = useState(false);
   const [synthesis, setSynthesis] = useState<EvidenceSynthesis | null>(null);
+  const [feedbackStates, setFeedbackStates] = useState<Record<string, boolean | null>>({});
 
   const onToggle = async () => {
     const next = !expanded;
@@ -405,22 +406,51 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
         // Initialize knowledge graph if not already done
         await initializeKnowledgeGraph();
 
-        // Use personalized graph-based search (Phase 3: respects patient preferences)
-        const { complexity } = computePatternComplexity(1, [pattern.severity]);
+        // Use personalized graph-based search with pattern memory (Phase 3 Week 3)
         const patientId = session?.user?.id ?? "unknown";
         const found = await searchViaGraphPersonalized(
           pattern.suggestedQuery,
           patientId,
           1,
           pattern.severity === "attention" ? 1.0 : pattern.severity === "watch" ? 0.6 : 0.3,
-          4 // topK: 4 papers with activation paths (filtered by preferences)
+          4, // topK: 4 papers with activation paths (filtered by preferences)
+          pattern.id // Pass patternId for feedback-based ranking
         );
         setEvidence(found);
+
+        // Load existing feedback for these papers
+        const feedback: Record<string, boolean | null> = {};
+        for (const result of found) {
+          const existing = await getPatientPaperFeedback(patientId, result.paperId);
+          if (existing) {
+            feedback[result.paperId] = existing.wasHelpful;
+          }
+        }
+        setFeedbackStates(feedback);
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo buscar evidencia relacionada.");
       } finally {
         setSearching(false);
       }
+    }
+  };
+
+  const onFeedback = async (paperId: string, wasHelpful: boolean) => {
+    const patientId = session?.user?.id ?? "unknown";
+    try {
+      await recordPatternFeedback(patientId, pattern.id, paperId, wasHelpful);
+      setFeedbackStates({
+        ...feedbackStates,
+        [paperId]: wasHelpful,
+      });
+      Alert.alert(
+        "Gracias",
+        wasHelpful
+          ? "Nos alegra que te haya sido útil 😊"
+          : "Entendido, usaremos esto para mejorar"
+      );
+    } catch (e: any) {
+      Alert.alert("Error", "No se pudo registrar tu opinión.");
     }
   };
 
@@ -475,6 +505,42 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
               <Text style={styles.evidenceMeta}>
                 Ruta: {e.path.join(" → ")}
               </Text>
+
+              {/* Phase 3 Week 3: Feedback buttons for pattern memory */}
+              <View style={styles.feedbackRow}>
+                <Pressable
+                  style={[
+                    styles.feedbackButton,
+                    feedbackStates[e.paperId] === true && styles.feedbackButtonActive,
+                  ]}
+                  onPress={() => onFeedback(e.paperId, true)}
+                >
+                  <Text
+                    style={[
+                      styles.feedbackButtonText,
+                      feedbackStates[e.paperId] === true && styles.feedbackButtonTextActive,
+                    ]}
+                  >
+                    👍 Útil
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.feedbackButton,
+                    feedbackStates[e.paperId] === false && styles.feedbackButtonActive,
+                  ]}
+                  onPress={() => onFeedback(e.paperId, false)}
+                >
+                  <Text
+                    style={[
+                      styles.feedbackButtonText,
+                      feedbackStates[e.paperId] === false && styles.feedbackButtonTextActive,
+                    ]}
+                  >
+                    👎 No ayudó
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ))}
 
@@ -684,5 +750,33 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 2,
     fontStyle: "italic",
+  },
+  // Feedback buttons for pattern memory (Phase 3 Week 3)
+  feedbackRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  feedbackButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#f9fafb",
+    alignItems: "center",
+  },
+  feedbackButtonActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#2563eb",
+  },
+  feedbackButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6b7280",
+  },
+  feedbackButtonTextActive: {
+    color: "#2563eb",
   },
 });
