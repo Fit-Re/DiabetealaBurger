@@ -98,3 +98,12 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   if (normA === 0 || normB === 0) return 0;
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
+
+/**
+ * Get embedding for a single query string
+ * Phase 3: Semantic search using query embeddings
+ */
+export async function getQueryEmbedding(query: string): Promise<number[]> {
+  const embeddings = await embedTexts([query], "query");
+  return embeddings[0];
+}

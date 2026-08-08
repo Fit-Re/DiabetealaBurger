@@ -237,8 +237,8 @@ export async function searchViaGraph(
     }));
   }
 
-  // Use graph-based search
-  return knowledgeGraphInstance.searchViaGraph(query, patternCount, avgSeverity, topK);
+  // Use graph-based search with semantic embeddings (Phase 3)
+  return await knowledgeGraphInstance.searchViaGraph(query, patternCount, avgSeverity, topK);
 }
 
 /**
