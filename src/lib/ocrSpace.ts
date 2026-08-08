@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import type { TrendArrow } from "../types";
+import { postWithRetry } from "./fetchWithRetry";
 
 // Cliente para OCR.space (https://ocr.space/ocrapi) — API de OCR gratuita
 // (tier gratis: 25,000 peticiones/mes, sin tarjeta de crédito, solo registro
@@ -61,11 +62,11 @@ async function callOcrSpace(base64Image: string, mediaType: string): Promise<any
     language: "spa",
   });
 
-  const response = await fetch(OCR_ENDPOINT, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
+  const response = await postWithRetry(
+    OCR_ENDPOINT,
+    body.toString(),
+    { "content-type": "application/x-www-form-urlencoded" }
+  );
 
   if (!response.ok) {
     throw new Error(`Error de OCR.space (${response.status})`);

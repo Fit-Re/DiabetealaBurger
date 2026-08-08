@@ -1,3 +1,5 @@
+import { getWithRetry } from "./fetchWithRetry";
+
 const EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 
 export interface PubMedArticle {
@@ -65,7 +67,7 @@ export async function searchPubMedLive(
     sort: "relevance",
     retmode: "json",
   });
-  const searchResponse = await fetch(`${EUTILS_BASE}/esearch.fcgi?${searchParams}`);
+  const searchResponse = await getWithRetry(`${EUTILS_BASE}/esearch.fcgi?${searchParams}`);
   if (!searchResponse.ok) {
     throw new Error(`Error al buscar en PubMed (${searchResponse.status})`);
   }
@@ -79,7 +81,7 @@ export async function searchPubMedLive(
     rettype: "abstract",
     retmode: "xml",
   });
-  const fetchResponse = await fetch(`${EUTILS_BASE}/efetch.fcgi?${fetchParams}`);
+  const fetchResponse = await getWithRetry(`${EUTILS_BASE}/efetch.fcgi?${fetchParams}`);
   if (!fetchResponse.ok) {
     throw new Error(`Error al obtener artículos de PubMed (${fetchResponse.status})`);
   }
