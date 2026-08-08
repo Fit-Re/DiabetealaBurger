@@ -14,6 +14,26 @@ import { notifyPatternFinding } from "./notifications";
 import { TARGET_RANGE } from "../types";
 import type { PatternFinding } from "../types";
 
+// Structured error logging for debugging enrichment failures
+function logEnrichmentError(
+  phase: string,
+  error: any,
+  context?: Record<string, any>
+): void {
+  const timestamp = new Date().toISOString();
+  const message = error instanceof Error ? error.message : String(error);
+  const stack = error instanceof Error ? error.stack : undefined;
+
+  console.error(`[AutoEnrich:${phase}:${timestamp}]`, {
+    error: message,
+    stack,
+    ...context,
+  });
+
+  // In production, could send to error tracking service
+  // e.g., Sentry.captureException(error, { tags: { phase }, contexts: { enrichment: context } })
+}
+
 const ENRICHMENT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const MAX_PATTERNS_TO_ENRICH = 3;
 // Ventana de lectura del historial para calcular tendencia (4 semanas).
@@ -129,13 +149,17 @@ export async function runPatternAnalysis(): Promise<PatternFinding[]> {
       if (rows.length > 0) {
         await supabase.from("pattern_history").insert(rows);
       }
-    } catch {
+    } catch (e) {
+      logEnrichmentError("PATTERN_HISTORY", e, {
+        rowsToInsert: rows.length,
+      });
       // Historial no disponible (tabla no migrada) o error de red/insert:
       // degradamos limpio. Los patrones ya están calculados y se devuelven igual.
     }
 
     return patterns;
-  } catch {
+  } catch (e) {
+    logEnrichmentError("PATTERN_ANALYSIS", e);
     return [];
   }
 }
@@ -151,10 +175,22 @@ export async function runBackgroundEnrichment(
 ): Promise<void> {
   try {
     const key = await getEmbeddingApiKey();
-    if (!key) return;
+    if (!key) {
+      logEnrichmentError("INIT", new Error("No Gemini API key configured"), {
+        patternCount: patterns.length,
+      });
+      return;
+    }
 
     // Initialize knowledge graph if not already done
-    await initializeKnowledgeGraph();
+    try {
+      await initializeKnowledgeGraph();
+    } catch (e) {
+      logEnrichmentError("KB_INIT", e, {
+        patternCount: patterns.length,
+      });
+      return; // Cannot proceed without KB
+    }
 
     // Extract pattern complexity for adaptive graph propagation
     const severities = patterns.map((p) => p.severity);
@@ -180,14 +216,26 @@ export async function runBackgroundEnrichment(
 
     // Search via knowledge graph for each pattern
     for (const pattern of patterns.slice(0, MAX_PATTERNS_TO_ENRICH)) {
-      await searchViaGraph(
-        pattern.suggestedQuery,
-        patterns.length,
-        avgSeverity,
-        5 // topK: 5 papers with activation paths
-      );
+      try {
+        await searchViaGraph(
+          pattern.suggestedQuery,
+          patterns.length,
+          avgSeverity,
+          5 // topK: 5 papers with activation paths
+        );
+      } catch (e) {
+        logEnrichmentError("SEARCH_GRAPH", e, {
+          patternId: pattern.id,
+          patternTitle: pattern.title,
+          query: pattern.suggestedQuery,
+        });
+        // Continue with next pattern on error
+      }
     }
-  } catch {
+  } catch (e) {
+    logEnrichmentError("ENRICHMENT", e, {
+      patternCount: patterns.length,
+    });
     // Enriquecimiento oportunista: sin conexión, red caída, etc. no deben
     // afectar el flujo principal de la app.
   }
