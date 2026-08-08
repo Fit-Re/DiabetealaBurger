@@ -16,10 +16,65 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+// Retry configuration for transient network/API errors
+const FETCH_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1000;
+const BACKOFF_MULTIPLIER = 2;
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+function isTransientError(status: number): boolean {
+  return status === 429 || status === 503 || status >= 500;
+}
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = MAX_RETRIES
+): Promise<Response> {
+  let lastError: Error | null = null;
+  let backoffMs = INITIAL_BACKOFF_MS;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!isTransientError(response.status)) {
+          return response;
+        }
+
+        lastError = new Error(`HTTP ${response.status} (transient, attempt ${attempt + 1}/${maxRetries + 1})`);
+        if (attempt === maxRetries) {
+          return response;
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (e) {
+      lastError =
+        e instanceof Error
+          ? new Error(`Network error (attempt ${attempt + 1}/${maxRetries + 1}): ${e.message}`)
+          : new Error(`Network error (attempt ${attempt + 1}/${maxRetries + 1})`);
+
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    backoffMs = Math.min(backoffMs * BACKOFF_MULTIPLIER, 32_000);
+  }
+
+  throw lastError || new Error("Fetch failed after retries");
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -144,7 +199,7 @@ function lluHostForRegion(region: string | null): string {
 }
 
 async function lluLoginAt(host: string, email: string, password: string): Promise<any> {
-  const response = await fetch(`${host}/llu/auth/login`, {
+  const response = await fetchWithRetry(`${host}/llu/auth/login`, {
     method: "POST",
     headers: lluHeaders(),
     body: JSON.stringify({ email, password }),
@@ -244,12 +299,15 @@ async function syncLibreLinkUpForPatient(
   const host = lluHostForRegion(region);
   const accountIdValue = await sha256Hex(userId);
 
-  const connResponse = await fetch(`${host}/llu/connections`, {
+  const connResponse = await fetchWithRetry(`${host}/llu/connections`, {
     headers: { ...lluHeaders(), authorization: `Bearer ${token}`, "account-id": accountIdValue },
   });
   const connJson = await connResponse.json().catch(() => ({}));
   if (!connResponse.ok) {
-    throw new Error(connJson?.message || `Error al obtener conexiones (${connResponse.status})`);
+    const statusText = connResponse.status === 403 ? "Forbidden (invalid credentials or API version)" : "";
+    throw new Error(
+      connJson?.message || `Error al obtener conexiones (${connResponse.status}) ${statusText}`.trim()
+    );
   }
   const connections = connJson?.data ?? [];
   if (connections.length === 0) {
@@ -257,7 +315,7 @@ async function syncLibreLinkUpForPatient(
   }
   const patient = connections[0];
 
-  const graphResponse = await fetch(`${host}/llu/connections/${patient.patientId}/graph`, {
+  const graphResponse = await fetchWithRetry(`${host}/llu/connections/${patient.patientId}/graph`, {
     headers: { ...lluHeaders(), authorization: `Bearer ${token}`, "account-id": accountIdValue },
   });
   const graphJson = await graphResponse.json().catch(() => ({}));
@@ -393,7 +451,7 @@ async function syncUltrahumanForPatient(
   for (let i = 0; i < UH_DAYS_BACK; i++) {
     const dateKey = dateKeyDaysAgo(i, utcOffsetHours);
     try {
-      const response = await fetch(`${UH_BASE_URL}/partner/daily_metrics?date=${dateKey}`, {
+      const response = await fetchWithRetry(`${UH_BASE_URL}/partner/daily_metrics?date=${dateKey}`, {
         headers: { Authorization: creds.token, "content-type": "application/json" },
       });
       const json = await response.json().catch(() => ({}));
