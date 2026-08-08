@@ -8,6 +8,7 @@ import { KNOWLEDGE_CORPUS } from "../data/knowledgeCorpus";
 import { searchPubMedLive } from "./pubmed";
 import type { KnowledgeSearchResult } from "../types";
 import { cosineSimilarity, embedTexts } from "./gemini";
+import { KnowledgeGraph, type PaperNode, type ActivationResult } from "./knowledgeGraph";
 
 const BATCH_SIZE = 10;
 const LIVE_FALLBACK_SCORE_THRESHOLD = 0.55;
@@ -127,4 +128,129 @@ export async function searchKnowledge(
   }
 
   return localResults.slice(0, topK);
+}
+
+// ============================================================================
+// Knowledge Graph Integration (Phase 1)
+// ============================================================================
+
+let knowledgeGraphInstance: KnowledgeGraph | null = null;
+
+/**
+ * Initialize the knowledge graph with papers and relationships
+ * Call this once at app startup
+ */
+export async function initializeKnowledgeGraph(): Promise<void> {
+  if (knowledgeGraphInstance) return;  // Already initialized
+
+  const graph = new KnowledgeGraph();
+  const chunks = await getAllKnowledgeChunks();
+
+  // Convert chunks to PaperNode format
+  const papers: PaperNode[] = chunks.map((chunk) => ({
+    id: chunk.slug,
+    title: chunk.title,
+    authors: chunk.authors,
+    year: chunk.year,
+    source: chunk.source,
+    url: chunk.url,
+    topics: chunk.topic ? [chunk.topic] : [],
+    evidenceLevel: "observational" as const,  // Default; could be enhanced
+    sampleSize: null,
+    embedding: chunk.embedding,
+    curated: chunk.curated,
+    summary: chunk.summary,
+  }));
+
+  // TODO: Fetch paper_relationships from Supabase and pass to loadGraph
+  // For now, initialize with papers only (edges will be loaded later)
+  graph.loadGraph(papers, []);
+
+  knowledgeGraphInstance = graph;
+  console.log(`✓ Knowledge graph initialized with ${papers.length} papers`);
+}
+
+/**
+ * Get the knowledge graph instance
+ */
+export function getKnowledgeGraph(): KnowledgeGraph | null {
+  return knowledgeGraphInstance;
+}
+
+/**
+ * Search via knowledge graph: semantic search + multi-hop propagation
+ * Returns papers ranked by activation score, showing activation paths
+ *
+ * @param query Search query
+ * @param patternCount Number of detected patterns (affects propagation depth)
+ * @param avgSeverity Average pattern severity 0-1 (affects propagation depth)
+ * @param topK Number of results to return
+ * @returns Ranked papers with activation paths and confidence
+ */
+export async function searchViaGraph(
+  query: string,
+  patternCount: number = 1,
+  avgSeverity: number = 1,
+  topK: number = 5
+): Promise<ActivationResult[]> {
+  if (!knowledgeGraphInstance) {
+    console.warn("Knowledge graph not initialized; falling back to linear search");
+    const linear = await searchKnowledge(query, { topK });
+    return linear.map((r) => ({
+      paperId: r.slug,
+      paper: {
+        id: r.slug,
+        title: r.title,
+        authors: r.authors,
+        year: r.year,
+        source: r.source,
+        url: r.url,
+        topics: r.topic ? [r.topic] : [],
+        evidenceLevel: "observational" as const,
+        sampleSize: null,
+        embedding: r.embedding,
+        curated: r.curated,
+        summary: r.summary,
+      },
+      activationScore: r.score,
+      path: [r.slug],
+      hopCount: 0,
+      confidence: r.score > 0.7 ? ("strong" as const) : ("moderate" as const),
+    }));
+  }
+
+  // Use graph-based search
+  return knowledgeGraphInstance.searchViaGraph(query, patternCount, avgSeverity, topK);
+}
+
+/**
+ * Compute case complexity based on patterns (for adaptive propagation depth)
+ */
+export function computePatternComplexity(
+  patternCount: number,
+  severities: ("info" | "watch" | "attention")[]
+): { complexity: number; depth: number } {
+  const severityScores = severities.map((s) => {
+    switch (s) {
+      case "info": return 0.3;
+      case "watch": return 0.6;
+      case "attention": return 1.0;
+    }
+  });
+
+  const avgSeverity = severityScores.length > 0
+    ? severityScores.reduce((a, b) => a + b) / severityScores.length
+    : 0.5;
+
+  if (!knowledgeGraphInstance) {
+    return { complexity: 1, depth: 1 };
+  }
+
+  const complexity = knowledgeGraphInstance.computeCaseComplexity(
+    patternCount,
+    avgSeverity
+  );
+  const depth = knowledgeGraphInstance.determinePropagationDepth(complexity);
+
+  return { complexity, depth };
 }
