@@ -3,6 +3,7 @@ import {
   getKnowledgeChunkCount,
   getKnowledgeChunkSlugs,
   insertKnowledgeChunk,
+  getPatientProfile,
 } from "../db/database";
 import { KNOWLEDGE_CORPUS } from "../data/knowledgeCorpus";
 import { searchPubMedLive } from "./pubmed";
@@ -15,6 +16,15 @@ const BATCH_SIZE = 10;
 const LIVE_FALLBACK_SCORE_THRESHOLD = 0.55;
 const LIVE_FALLBACK_MAX_RESULTS = 3;
 const LIVE_SUMMARY_MAX_CHARS = 800;
+
+// Phase 3: Patient preferences for personalized evidence discovery
+export interface PatientPreferences {
+  maxGraphDepth: 1 | 2 | 3;
+  preferRctOnly: boolean;
+  preferredEvidenceLevel: "rct" | "meta" | "observational";
+  excludeTopics: string[];
+  preferredLanguages: string[];
+}
 
 export interface IngestProgress {
   done: number;
@@ -272,4 +282,132 @@ export function computePatternComplexity(
   const depth = knowledgeGraphInstance.determinePropagationDepth(complexity);
 
   return { complexity, depth };
+}
+
+// ============================================================================
+// Patient Personalization (Phase 3 Week 2)
+// ============================================================================
+
+/**
+ * Load patient preferences from Supabase
+ * Determines max graph depth, evidence filtering, topic exclusions
+ */
+export async function loadPatientPreferences(
+  patientId: string
+): Promise<PatientPreferences> {
+  try {
+    const { data } = await supabase
+      .from("patient_preferences")
+      .select("*")
+      .eq("patient_id", patientId)
+      .single();
+
+    if (!data) {
+      // Return defaults if no preferences configured
+      return getDefaultPreferences();
+    }
+
+    return {
+      maxGraphDepth: data.max_graph_depth as 1 | 2 | 3,
+      preferRctOnly: data.prefer_rct_only ?? false,
+      preferredEvidenceLevel: data.preferred_evidence_level ?? "rct",
+      excludeTopics: data.exclude_topics ?? [],
+      preferredLanguages: data.preferred_languages ?? ["es", "en"],
+    };
+  } catch {
+    // If preferences table doesn't exist or query fails, return defaults
+    return getDefaultPreferences();
+  }
+}
+
+/**
+ * Default preferences (middle ground for all patients)
+ */
+export function getDefaultPreferences(): PatientPreferences {
+  return {
+    maxGraphDepth: 2,
+    preferRctOnly: false,
+    preferredEvidenceLevel: "rct",
+    excludeTopics: [],
+    preferredLanguages: ["es", "en"],
+  };
+}
+
+/**
+ * Save patient preferences to Supabase
+ */
+export async function savePatientPreferences(
+  patientId: string,
+  preferences: PatientPreferences
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from("patient_preferences")
+      .upsert({
+        patient_id: patientId,
+        max_graph_depth: preferences.maxGraphDepth,
+        prefer_rct_only: preferences.preferRctOnly,
+        preferred_evidence_level: preferences.preferredEvidenceLevel,
+        exclude_topics: preferences.excludeTopics,
+        preferred_languages: preferences.preferredLanguages,
+        updated_at: Date.now(),
+      });
+
+    if (error) {
+      console.warn("Failed to save patient preferences:", error);
+    }
+  } catch {
+    console.warn("Error saving patient preferences");
+  }
+}
+
+/**
+ * Search via graph with patient personalization
+ * Uses patient's preferred depth, evidence level, and topic exclusions
+ */
+export async function searchViaGraphPersonalized(
+  query: string,
+  patientId: string,
+  patternCount: number = 1,
+  avgSeverity: number = 1,
+  topK: number = 5
+): Promise<ActivationResult[]> {
+  if (!knowledgeGraphInstance) {
+    console.warn("Knowledge graph not initialized");
+    return [];
+  }
+
+  // Load patient preferences
+  const preferences = await loadPatientPreferences(patientId);
+
+  // Search with patient's preferred depth
+  const results = await knowledgeGraphInstance.searchViaGraph(
+    query,
+    patternCount,
+    avgSeverity,
+    topK * 2  // Get extra results to filter
+  );
+
+  // Filter by patient preferences
+  const filtered = results.filter((result) => {
+    // Exclude topics if patient configured them
+    if (
+      preferences.excludeTopics.length > 0 &&
+      result.paper.topics.some((t) => preferences.excludeTopics.includes(t))
+    ) {
+      return false;
+    }
+
+    // Filter by evidence level preference
+    if (
+      preferences.preferRctOnly &&
+      result.paper.evidenceLevel !== "rct"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+
+  return filtered.slice(0, topK);
 }

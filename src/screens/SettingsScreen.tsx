@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -8,7 +8,9 @@ import {
   ScrollView,
   Alert,
   Platform,
+  ActivityIndicator,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { synthesizeEvidence } from "../lib/geminiVision";
 import type { EvidenceSynthesis } from "../lib/geminiVision";
@@ -24,10 +26,15 @@ import {
   searchViaGraph,
   initializeKnowledgeGraph,
   computePatternComplexity,
+  searchViaGraphPersonalized,
+  loadPatientPreferences,
+  savePatientPreferences,
+  type PatientPreferences,
 } from "../lib/knowledgeBase";
 import type { IngestProgress } from "../lib/knowledgeBase";
 import type { DiabetesType, Hba1cReading } from "../types";
 import type { ActivationResult } from "../lib/knowledgeGraph";
+import { useAuth } from "../lib/auth";
 import { TARGET_RANGE } from "../types";
 import {
   deleteAllKnowledgeChunks,
@@ -46,7 +53,6 @@ import {
 } from "../lib/syncCredentials";
 import type { SyncRun } from "../lib/syncCredentials";
 import { clearOcrApiKey, getOcrApiKey, setOcrApiKey } from "../lib/ocrSpace";
-import { useAuth } from "../lib/auth";
 import { formatDate } from "../lib/dateTimeUtils";
 
 interface ApiKeySectionProps {
@@ -772,9 +778,16 @@ function KnowledgeSearchTestSection() {
       // Initialize knowledge graph if not already done
       await initializeKnowledgeGraph();
 
-      // Use graph-based search with adaptive propagation
-      const { complexity } = computePatternComplexity(1, ["watch"]);
-      const found = await searchViaGraph(query.trim(), 1, 0.6, 5);
+      // Use personalized graph-based search (respects patient preferences)
+      const { session } = useAuth();
+      const patientId = session?.user?.id ?? "unknown";
+      const found = await searchViaGraphPersonalized(
+        query.trim(),
+        patientId,
+        1,
+        0.6,
+        5 // topK with preferences filtering
+      );
       setResults(found);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo buscar en la base de conocimiento.");
@@ -879,6 +892,149 @@ function KnowledgeSearchTestSection() {
   );
 }
 
+function PatientPreferencesSection() {
+  const { session } = useAuth();
+  const [preferences, setPreferences] = useState<PatientPreferences | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!session?.user?.id) return;
+
+      setLoading(true);
+      loadPatientPreferences(session.user.id)
+        .then(prefs => {
+          setPreferences(prefs);
+          setSaved(false);
+        })
+        .finally(() => setLoading(false));
+    }, [session?.user?.id])
+  );
+
+  const handleSave = async () => {
+    if (!preferences || !session?.user?.id) return;
+
+    setLoading(true);
+    try {
+      await savePatientPreferences(session.user.id, preferences);
+      setSaved(true);
+      Alert.alert("Guardado", "Tus preferencias se guardaron correctamente.");
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) {
+      Alert.alert("Error", "No se pudieron guardar las preferencias.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!preferences) {
+    return <ActivityIndicator style={{ marginVertical: 20 }} />;
+  }
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Mis Preferencias (Búsqueda de Evidencia)</Text>
+      <Text style={styles.description}>
+        Personaliza cómo la app busca y filtra evidencia médica para ti.
+      </Text>
+
+      <Text style={styles.label}>Profundidad máxima de búsqueda</Text>
+      <View style={styles.depthSelector}>
+        {[1, 2, 3].map((depth) => (
+          <Pressable
+            key={depth}
+            style={[
+              styles.depthButton,
+              preferences.maxGraphDepth === depth && styles.depthButtonActive,
+            ]}
+            onPress={() =>
+              setPreferences({ ...preferences, maxGraphDepth: depth as 1 | 2 | 3 })
+            }
+          >
+            <Text
+              style={[
+                styles.depthButtonText,
+                preferences.maxGraphDepth === depth && styles.depthButtonTextActive,
+              ]}
+            >
+              {depth === 1 ? "Directa" : depth === 2 ? "Intermedia" : "Profunda"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.helperText}>
+        {preferences.maxGraphDepth === 1
+          ? "Solo papers directamente relacionados"
+          : preferences.maxGraphDepth === 2
+          ? "Papers directos e indirectos (recomendado)"
+          : "Papers lejanos también (más resultados)"}
+      </Text>
+
+      <Text style={[styles.label, { marginTop: 20 }]}>
+        Preferencia de tipo de evidencia
+      </Text>
+      <Pressable
+        style={styles.checkboxRow}
+        onPress={() =>
+          setPreferences({ ...preferences, preferRctOnly: !preferences.preferRctOnly })
+        }
+      >
+        <View style={[styles.checkbox, preferences.preferRctOnly && styles.checkboxChecked]}>
+          {preferences.preferRctOnly && <Text style={styles.checkmark}>✓</Text>}
+        </View>
+        <Text style={styles.checkboxLabel}>Solo estudios RCT (ensayos controlados)</Text>
+      </Pressable>
+
+      <Text style={[styles.label, { marginTop: 20 }]}>Nivel de evidencia preferido</Text>
+      <View style={styles.evidenceLevelSelector}>
+        {["rct", "meta", "observational"].map((level) => (
+          <Pressable
+            key={level}
+            style={[
+              styles.evidenceLevelButton,
+              preferences.preferredEvidenceLevel === level &&
+                styles.evidenceLevelButtonActive,
+            ]}
+            onPress={() =>
+              setPreferences({
+                ...preferences,
+                preferredEvidenceLevel: level as "rct" | "meta" | "observational",
+              })
+            }
+          >
+            <Text
+              style={[
+                styles.evidenceLevelButtonText,
+                preferences.preferredEvidenceLevel === level &&
+                  styles.evidenceLevelButtonTextActive,
+              ]}
+            >
+              {level === "rct" ? "RCT" : level === "meta" ? "Meta-análisis" : "Observacional"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Pressable
+        style={[styles.saveButton, loading && styles.disabled]}
+        onPress={handleSave}
+        disabled={loading}
+      >
+        <Text style={styles.saveButtonText}>
+          {loading ? "Guardando..." : "Guardar preferencias"}
+        </Text>
+      </Pressable>
+
+      {saved && (
+        <Text style={{ color: "#10b981", marginTop: 10, textAlign: "center" }}>
+          ✓ Preferencias guardadas
+        </Text>
+      )}
+    </View>
+  );
+}
+
 function AccountSection() {
   const { session, signOut } = useAuth();
 
@@ -934,6 +1090,8 @@ export default function SettingsScreen() {
       <KnowledgeBaseSection />
 
       <KnowledgeSearchTestSection />
+
+      <PatientPreferencesSection />
 
       <Text style={styles.disclaimer}>
         Esta app es una herramienta de registro y apoyo personal para el manejo de
@@ -1064,4 +1222,73 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     lineHeight: 16,
   },
+  // Patient Preferences Section Styles
+  label: { fontSize: 13, fontWeight: "600", color: "#111827", marginBottom: 8 },
+  helperText: { fontSize: 12, color: "#6b7280", marginBottom: 12, fontStyle: "italic" },
+  depthSelector: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    gap: 8,
+  },
+  depthButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    backgroundColor: "#f9fafb",
+    alignItems: "center",
+  },
+  depthButtonActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#2563eb",
+  },
+  depthButtonText: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
+  depthButtonTextActive: { color: "#2563eb" },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: "#d1d5db",
+    marginRight: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxChecked: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
+  },
+  checkmark: { color: "#fff", fontWeight: "bold", fontSize: 14 },
+  checkboxLabel: { fontSize: 13, color: "#374151", flex: 1 },
+  evidenceLevelSelector: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    gap: 8,
+  },
+  evidenceLevelButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    backgroundColor: "#f9fafb",
+    alignItems: "center",
+  },
+  evidenceLevelButtonActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#2563eb",
+  },
+  evidenceLevelButtonText: { fontSize: 11, fontWeight: "600", color: "#6b7280" },
+  evidenceLevelButtonTextActive: { color: "#2563eb" },
 });

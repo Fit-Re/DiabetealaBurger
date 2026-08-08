@@ -25,7 +25,7 @@ import {
 } from "../db/database";
 import { addDays, isSameDay, startOfDay } from "../lib/dateTimeUtils";
 import { detectPatterns } from "../lib/patterns";
-import { searchViaGraph, initializeKnowledgeGraph, computePatternComplexity } from "../lib/knowledgeBase";
+import { searchViaGraph, initializeKnowledgeGraph, computePatternComplexity, searchViaGraphPersonalized } from "../lib/knowledgeBase";
 import { synthesizeEvidence } from "../lib/geminiVision";
 import type { EvidenceSynthesis } from "../lib/geminiVision";
 import type {
@@ -36,6 +36,7 @@ import type {
 } from "../types";
 import type { ActivationResult } from "../lib/knowledgeGraph";
 import { TARGET_RANGE, TREND_LABELS } from "../types";
+import { useAuth } from "../lib/auth";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PATTERN_WINDOW_MS = 14 * DAY_MS;
@@ -388,6 +389,7 @@ const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], st
 };
 
 function PatternCard({ pattern }: { pattern: PatternFinding }) {
+  const { session } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [searching, setSearching] = useState(false);
   const [evidence, setEvidence] = useState<ActivationResult[] | null>(null);
@@ -403,13 +405,15 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
         // Initialize knowledge graph if not already done
         await initializeKnowledgeGraph();
 
-        // Use graph-based search with pattern severity
+        // Use personalized graph-based search (Phase 3: respects patient preferences)
         const { complexity } = computePatternComplexity(1, [pattern.severity]);
-        const found = await searchViaGraph(
+        const patientId = session?.user?.id ?? "unknown";
+        const found = await searchViaGraphPersonalized(
           pattern.suggestedQuery,
+          patientId,
           1,
           pattern.severity === "attention" ? 1.0 : pattern.severity === "watch" ? 0.6 : 0.3,
-          4 // topK: 4 papers with activation paths
+          4 // topK: 4 papers with activation paths (filtered by preferences)
         );
         setEvidence(found);
       } catch (e: any) {
