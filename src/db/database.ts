@@ -473,7 +473,7 @@ export async function insertKnowledgeChunk(
       embedding_norm: embeddingNorm,
       curated,
     },
-    { onConflict: "slug", ignoreDuplicates: true }
+    { onConflict: "patient_id,slug" }
   );
   if (error) throw new Error(error.message);
 }
