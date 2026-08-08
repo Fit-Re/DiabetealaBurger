@@ -8,23 +8,10 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal",
-      "ios": {
-        "enterpriseProvisioning": "adhoc"
-      }
+      "distribution": "internal"
     },
     "production": {
-      "distribution": "store",
-      "ios": {
-        "enterpriseProvisioning": "universal"
-      }
-    }
-  },
-  "submit": {
-    "production": {
-      "ios": {
-        "asciiCredentialsFile": "./asciiCredentials.json"
-      }
+      "distribution": "store"
     }
   }
 }
