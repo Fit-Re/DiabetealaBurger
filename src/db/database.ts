@@ -1,4 +1,11 @@
 import { supabase } from "../lib/supabase";
+import {
+  readingsCache,
+  CACHE_TTL,
+  getCacheKeyReadingsBetween,
+  getCacheKeyRecentReadings,
+  getCacheKeyReadingsSince,
+} from "../lib/queryCache";
 import type {
   DiabetesType,
   GlucoseReading,
@@ -44,6 +51,10 @@ export async function insertReading(
     })
     .select("id")
     .single();
+
+  // Invalidate all readings queries when new reading is inserted
+  readingsCache.invalidatePattern("readings:.*");
+
   return unwrap(result).id;
 }
 
@@ -79,36 +90,72 @@ function mapGlucoseReadingRow(row: GlucoseReadingRow): GlucoseReading {
 export async function getReadingsSince(
   sinceMs: number
 ): Promise<GlucoseReading[]> {
+  const cacheKey = getCacheKeyReadingsSince(sinceMs);
+
+  // Check cache first
+  const cached = readingsCache.get<GlucoseReading[]>(cacheKey);
+  if (cached) return cached;
+
+  // Cache miss: fetch from database
   const result = await supabase
     .from("glucose_readings")
     .select("*")
     .gte("timestamp_ms", sinceMs)
     .order("timestamp_ms", { ascending: false });
-  return unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
+  const readings = unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
+
+  // Store in cache
+  readingsCache.set(cacheKey, readings, CACHE_TTL.READINGS_QUERY);
+
+  return readings;
 }
 
 export async function getReadingsBetween(
   startMs: number,
   endMs: number
 ): Promise<GlucoseReading[]> {
+  const cacheKey = getCacheKeyReadingsBetween(startMs, endMs);
+
+  // Check cache first
+  const cached = readingsCache.get<GlucoseReading[]>(cacheKey);
+  if (cached) return cached;
+
+  // Cache miss: fetch from database
   const result = await supabase
     .from("glucose_readings")
     .select("*")
     .gte("timestamp_ms", startMs)
     .lt("timestamp_ms", endMs)
     .order("timestamp_ms", { ascending: false });
-  return unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
+  const readings = unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
+
+  // Store in cache
+  readingsCache.set(cacheKey, readings, CACHE_TTL.READINGS_QUERY);
+
+  return readings;
 }
 
 export async function getRecentReadings(
   limit: number = 20
 ): Promise<GlucoseReading[]> {
+  const cacheKey = getCacheKeyRecentReadings(limit);
+
+  // Check cache first
+  const cached = readingsCache.get<GlucoseReading[]>(cacheKey);
+  if (cached) return cached;
+
+  // Cache miss: fetch from database
   const result = await supabase
     .from("glucose_readings")
     .select("*")
     .order("timestamp_ms", { ascending: false })
     .limit(limit);
-  return unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
+  const readings = unwrap<GlucoseReadingRow[]>(result).map(mapGlucoseReadingRow);
+
+  // Store in cache
+  readingsCache.set(cacheKey, readings, CACHE_TTL.RECENT_READINGS);
+
+  return readings;
 }
 
 export function computeStats(
@@ -376,6 +423,7 @@ interface KnowledgeChunkRow {
   topic: string;
   text: string;
   embedding: number[];
+  embedding_norm: number;
   curated: boolean;
   created_at_ms: number;
 }
@@ -392,6 +440,7 @@ function mapKnowledgeChunkRow(row: KnowledgeChunkRow): KnowledgeChunk {
     topic: row.topic as KnowledgeChunk["topic"],
     summary: row.text,
     embedding: row.embedding,
+    embeddingNorm: row.embedding_norm,
     curated: row.curated,
     createdAtMs: row.created_at_ms,
   };
@@ -407,6 +456,9 @@ export async function insertKnowledgeChunk(
   embedding: number[],
   curated: boolean = true
 ): Promise<void> {
+  const { computeEmbeddingNorm } = await import("../lib/gemini");
+  const embeddingNorm = computeEmbeddingNorm(embedding);
+
   const { error } = await supabase.from("knowledge_chunks").upsert(
     {
       slug: entry.id,
@@ -418,6 +470,7 @@ export async function insertKnowledgeChunk(
       topic: entry.topic,
       text: entry.summary,
       embedding,
+      embedding_norm: embeddingNorm,
       curated,
     },
     { onConflict: "slug", ignoreDuplicates: true }
