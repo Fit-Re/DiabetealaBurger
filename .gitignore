@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+yarn-error.log
+npm-debug.log
+.pnp
+
+# Build
+dist/
+build/
+.expo/
+.expo-shared/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+*.log
+.cache/
