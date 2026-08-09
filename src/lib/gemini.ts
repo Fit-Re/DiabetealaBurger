@@ -5,8 +5,17 @@
 // Dimensión fijada a 768 (EMBEDDING_DIMENSIONS) para que todos los chunks y las
 // queries sean comparables entre sí — mezclar dimensiones/modelos da similitudes
 // basura, por eso al migrar hay que purgar y re-ingerir el corpus.
-import * as SecureStore from "expo-secure-store";
 import { fetchWithRetry } from "./fetchWithRetry";
+
+// Detectar si estamos en web
+const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+// Storage adapter para SecureStore (usa localStorage en web, SecureStore en RN)
+const storage = isWeb ? {
+  getItemAsync: async (key: string) => localStorage.getItem(key),
+  setItemAsync: async (key: string, value: string) => localStorage.setItem(key, value),
+  deleteItemAsync: async (key: string) => localStorage.removeItem(key),
+} : require("expo-secure-store");
 
 const GEMINI_API_KEY_STORAGE_KEY = "gemini_api_key";
 const EMBEDDING_MODEL = "gemini-embedding-001";
@@ -23,11 +32,11 @@ const MAX_ATTEMPTS = 4;
 export const EMBEDDING_DIMENSIONS = 768;
 
 export async function getGeminiApiKey(): Promise<string | null> {
-  return SecureStore.getItemAsync(GEMINI_API_KEY_STORAGE_KEY);
+  return storage.getItemAsync(GEMINI_API_KEY_STORAGE_KEY);
 }
 
 export async function setGeminiApiKey(key: string): Promise<void> {
-  await SecureStore.setItemAsync(GEMINI_API_KEY_STORAGE_KEY, key.trim());
+  await storage.setItemAsync(GEMINI_API_KEY_STORAGE_KEY, key.trim());
 }
 
 export async function clearGeminiApiKey(): Promise<void> {

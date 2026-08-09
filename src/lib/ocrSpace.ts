@@ -1,6 +1,15 @@
-import * as SecureStore from "expo-secure-store";
 import type { TrendArrow } from "../types";
 import { postWithRetry } from "./fetchWithRetry";
+
+// Detectar si estamos en web
+const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+// Storage adapter para SecureStore (usa localStorage en web, SecureStore en RN)
+const storage = isWeb ? {
+  getItemAsync: async (key: string) => localStorage.getItem(key),
+  setItemAsync: async (key: string, value: string) => localStorage.setItem(key, value),
+  deleteItemAsync: async (key: string) => localStorage.removeItem(key),
+} : require("expo-secure-store");
 
 // Cliente para OCR.space (https://ocr.space/ocrapi) — API de OCR gratuita
 // (tier gratis: 25,000 peticiones/mes, sin tarjeta de crédito, solo registro
@@ -25,15 +34,15 @@ const MAX_PLAUSIBLE_MGDL = 500;
 const HIGH_CONFIDENCE_HEIGHT_RATIO = 1.3;
 
 export async function getOcrApiKey(): Promise<string | null> {
-  return SecureStore.getItemAsync(API_KEY_STORAGE_KEY);
+  return storage.getItemAsync(API_KEY_STORAGE_KEY);
 }
 
 export async function setOcrApiKey(key: string): Promise<void> {
-  await SecureStore.setItemAsync(API_KEY_STORAGE_KEY, key.trim());
+  await storage.setItemAsync(API_KEY_STORAGE_KEY, key.trim());
 }
 
 export async function clearOcrApiKey(): Promise<void> {
-  await SecureStore.deleteItemAsync(API_KEY_STORAGE_KEY);
+  await storage.deleteItemAsync(API_KEY_STORAGE_KEY);
 }
 
 interface OcrWord {
