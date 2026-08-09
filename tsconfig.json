@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "jsx": "react-native",
     "module": "ESNext",
     "moduleResolution": "node",
@@ -16,9 +20,19 @@
     "outDir": "./dist",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": [
+        "src/*"
+      ]
     }
   },
-  "include": ["src/**/*", "App.tsx"],
-  "exclude": ["node_modules", "dist", "build"]
+  "include": [
+    "src/**/*",
+    "App.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build"
+  ],
+  "extends": "expo/tsconfig.base"
 }
