@@ -37,11 +37,16 @@ const envScript = `<script>
   window.__EXPO_PUBLIC_SUPABASE_ANON_KEY__ = '${supabaseAnonKey || ''}';
 </script>`;
 
-// Insertar antes del script principal (maneja 'defer' y otros atributos)
-html = html.replace(
-  /<script[^>]*src="\/_expo\/static\/js\/web\//,
-  envScript + '\n  <script src="/_expo/static/js/web/'
-);
+// Insertar después del cierre de </head> o antes del primer script
+if (html.includes('</head>')) {
+  html = html.replace('</head>', envScript + '\n</head>');
+} else {
+  // Fallback: insertar antes del script principal
+  html = html.replace(
+    /<script[^>]*src="\/_expo\/static\/js\/web\//,
+    envScript + '\n  <script src="/_expo/static/js/web/'
+  );
+}
 
 fs.writeFileSync(indexHtmlPath, html);
 console.log('Environment variables injected successfully');
