@@ -21,17 +21,51 @@ export async function getCurrentUser() {
   return user
 }
 
+async function getAuthenticatedUserId(): Promise<string> {
+  const user = await getCurrentUser()
+  if (!user?.id) {
+    throw new Error('User not authenticated')
+  }
+  return user.id
+}
+
+function validateUserAccess(requestedPatientId: string, authenticatedUserId: string): void {
+  if (requestedPatientId !== authenticatedUserId) {
+    throw new Error('Unauthorized: Cannot access data for another patient')
+  }
+}
+
 export async function signInWithEmail(email: string, password: string) {
   const client = getSupabaseClient()
-  return client.auth.signInWithPassword({ email, password })
+  const { data, error } = await client.auth.signInWithPassword({ email, password })
+  if (error) {
+    throw new Error(`Authentication failed: Invalid credentials`)
+  }
+  return data
 }
 
 export async function signOut() {
   const client = getSupabaseClient()
-  return client.auth.signOut()
+  const { error } = await client.auth.signOut()
+  if (error) {
+    throw new Error(`Sign out failed: ${error.message}`)
+  }
 }
 
-export async function fetchGlucoseReadings(patientId: string) {
+interface GlucoseReading {
+  id: string
+  patient_id: string
+  value: number
+  unit: string
+  timestamp_ms: number
+  source: string
+  created_at_ms: number
+}
+
+export async function fetchGlucoseReadings(patientId: string): Promise<GlucoseReading[]> {
+  const authenticatedUserId = await getAuthenticatedUserId()
+  validateUserAccess(patientId, authenticatedUserId)
+
   const client = getSupabaseClient()
   const { data, error } = await client
     .from('glucose_readings')
@@ -44,10 +78,20 @@ export async function fetchGlucoseReadings(patientId: string) {
     throw new Error(`Failed to fetch glucose readings: ${error.message}`)
   }
 
-  return data || []
+  return (data as GlucoseReading[]) || []
 }
 
-export async function upsertGlucoseReadings(patientId: string, readings: any[]) {
+interface ReadingInput {
+  value: number
+  unit?: string
+  timestamp: number | Date
+  source?: string
+}
+
+export async function upsertGlucoseReadings(patientId: string, readings: ReadingInput[]): Promise<GlucoseReading[] | null> {
+  const authenticatedUserId = await getAuthenticatedUserId()
+  validateUserAccess(patientId, authenticatedUserId)
+
   const client = getSupabaseClient()
   const readingsToInsert = readings.map((r) => ({
     patient_id: patientId,
@@ -64,10 +108,13 @@ export async function upsertGlucoseReadings(patientId: string, readings: any[]) 
     throw new Error(`Failed to upsert glucose readings: ${error.message}`)
   }
 
-  return data
+  return data as GlucoseReading[] | null
 }
 
-export async function logEvent(patientId: string, event: string, metadata?: any) {
+export async function logEvent(patientId: string, event: string, metadata?: Record<string, unknown>): Promise<void> {
+  const authenticatedUserId = await getAuthenticatedUserId()
+  validateUserAccess(patientId, authenticatedUserId)
+
   const client = getSupabaseClient()
   const { error } = await client.from('app_logs').insert({
     patient_id: patientId,
