@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { useColorScheme, StyleSheet } from 'react-native'
+import { useColorScheme, StyleSheet, ErrorBoundary } from 'react-native'
 import { NavigationContainer } from '@react-navigation/native'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { StatusBar } from 'expo-status-bar'
@@ -13,6 +13,10 @@ import { SettingsScreen } from './src/screens/SettingsScreen'
 // Store & Theme
 import { useAppStore } from './src/store'
 import { colors } from './src/theme'
+
+// Services
+import { syncHealthDataBackground } from './src/services/healthSync'
+import { logEvent, initSupabase } from './src/services/supabase'
 
 const Tab = createBottomTabNavigator()
 
@@ -33,7 +37,23 @@ const navigationTheme = (scheme: 'light' | 'dark') => {
 
 const App: React.FC = () => {
   const systemColorScheme = useColorScheme() ?? 'light'
-  const { userProfile, setUserProfile, colorScheme, isOnboarded, setIsOnboarded } = useAppStore()
+  const { userProfile, setUserProfile, colorScheme, isOnboarded, setIsOnboarded } = useAppStore((state) => ({
+    userProfile: state.userProfile,
+    setUserProfile: state.setUserProfile,
+    colorScheme: state.colorScheme,
+    isOnboarded: state.isOnboarded,
+    setIsOnboarded: state.setIsOnboarded,
+  }))
+
+  // Initialize Supabase on app start
+  useEffect(() => {
+    const supabaseUrl = process.env.SUPABASE_URL
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
+
+    if (supabaseUrl && supabaseAnonKey) {
+      initSupabase({ url: supabaseUrl, anonKey: supabaseAnonKey })
+    }
+  }, [])
 
   // Initialize with sample data on first load
   useEffect(() => {
@@ -49,10 +69,25 @@ const App: React.FC = () => {
         insulinType: 'Rápida + Basal',
       })
 
-      // Mark as onboarded (in real app, this would be based on actual onboarding completion)
-      // setIsOnboarded(true)
+      // Log app launch
+      logEvent('1', 'app_launched', { timestamp: new Date().toISOString() })
     }
   }, [userProfile, isOnboarded, setUserProfile, setIsOnboarded])
+
+  // Background sync of health data every 15 minutes
+  useEffect(() => {
+    if (userProfile?.id) {
+      // Run sync immediately on app launch
+      syncHealthDataBackground(userProfile.id)
+
+      // Then run every 15 minutes
+      const interval = setInterval(() => {
+        syncHealthDataBackground(userProfile.id)
+      }, 15 * 60 * 1000)
+
+      return () => clearInterval(interval)
+    }
+  }, [userProfile?.id])
 
   const effectiveColorScheme = colorScheme === 'auto' ? systemColorScheme : (colorScheme as 'light' | 'dark')
 

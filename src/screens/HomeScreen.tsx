@@ -12,6 +12,7 @@ import {
 import { useAppStore } from '../store'
 import { colors, spacing, typography, borderRadius, shadows } from '../theme'
 import { Card } from '../components/Card'
+import { Button } from '../components/Button'
 import { formatDistanceToNow, format, parseISO, startOfDay, endOfDay } from 'date-fns'
 
 export const HomeScreen: React.FC = () => {
@@ -20,7 +21,13 @@ export const HomeScreen: React.FC = () => {
   const [selectedTimeRange, setSelectedTimeRange] = useState<'24h' | '7d' | '30d'>('24h')
   const [expandedPattern, setExpandedPattern] = useState<string | null>(null)
 
-  const { readings, insulinEvents, patterns, userProfile } = useAppStore()
+  // Optimized selectors to prevent unnecessary re-renders
+  const { readings, insulinEvents, patterns, userProfile } = useAppStore((state) => ({
+    readings: state.readings,
+    insulinEvents: state.insulinEvents,
+    patterns: state.patterns,
+    userProfile: state.userProfile,
+  }))
 
   // Get latest reading
   const currentReading = useMemo(() => readings[0], [readings])
@@ -296,20 +303,14 @@ export const HomeScreen: React.FC = () => {
         {/* Time Range Selector */}
         <View style={styles.timeRangeButtons}>
           {(['24h', '7d', '30d'] as const).map((range) => (
-            <TouchableOpacity
+            <Button
               key={range}
-              style={[styles.timeRangeButton, selectedTimeRange === range && styles.timeRangeButtonActive]}
+              label={range === '24h' ? '24h' : range === '7d' ? '7 días' : '30 días'}
               onPress={() => setSelectedTimeRange(range)}
-            >
-              <Text
-                style={[
-                  styles.timeRangeButtonText,
-                  selectedTimeRange === range && styles.timeRangeButtonTextActive,
-                ]}
-              >
-                {range === '24h' ? '24h' : range === '7d' ? '7 días' : '30 días'}
-              </Text>
-            </TouchableOpacity>
+              variant={selectedTimeRange === range ? 'primary' : 'outline'}
+              size="sm"
+              style={{ flex: 1 }}
+            />
           ))}
         </View>
 
@@ -383,9 +384,9 @@ export const HomeScreen: React.FC = () => {
       </ScrollView>
 
       {/* Primary CTA */}
-      <TouchableOpacity style={styles.cta} activeOpacity={0.8}>
-        <Text style={styles.ctaText}>+ Registrar lectura</Text>
-      </TouchableOpacity>
+      <View style={styles.cta}>
+        <Button label="+ Registrar lectura" onPress={() => {}} variant="primary" />
+      </View>
     </View>
   )
 }
