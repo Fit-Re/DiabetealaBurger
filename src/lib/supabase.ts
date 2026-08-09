@@ -2,27 +2,27 @@ import "react-native-url-polyfill/auto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+// Obtener variables de entorno (inyectadas por script o proceso.env)
+let supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || "";
+let supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || "";
 
+// Si estamos en web, intentar obtener de las globales inyectadas
 if (typeof window !== "undefined") {
-  console.log("Supabase configuration:", {
+  const injectedUrl = (window as any).__EXPO_PUBLIC_SUPABASE_URL__;
+  const injectedKey = (window as any).__EXPO_PUBLIC_SUPABASE_ANON_KEY__;
+
+  if (injectedUrl) supabaseUrl = injectedUrl;
+  if (injectedKey) supabaseAnonKey = injectedKey;
+
+  console.log("Supabase Config:", {
     hasUrl: !!supabaseUrl,
     hasKey: !!supabaseAnonKey,
-    url: supabaseUrl?.substring(0, 30),
-  });
-}
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Missing Supabase credentials", {
-    url: supabaseUrl,
-    key: supabaseAnonKey,
   });
 }
 
 export const supabase = createClient(
-  supabaseUrl || "",
-  supabaseAnonKey || "",
+  supabaseUrl,
+  supabaseAnonKey,
   {
     auth: {
       storage: AsyncStorage,
