@@ -16,7 +16,7 @@ import { colors } from './src/theme'
 
 // Services
 import { syncHealthDataBackground } from './src/services/healthSync'
-import { logEvent, initSupabase } from './src/services/supabase'
+import { logEvent, initSupabase, getCurrentUser } from './src/services/supabase'
 
 const Tab = createBottomTabNavigator()
 
@@ -51,28 +51,34 @@ const App: React.FC = () => {
     const supabaseAnonKey = process.env.SUPABASE_ANON_KEY
 
     if (supabaseUrl && supabaseAnonKey) {
-      initSupabase({ url: supabaseUrl, anonKey: supabaseAnonKey })
+      initSupabase(supabaseUrl, supabaseAnonKey)
     }
   }, [])
 
-  // Initialize with sample data on first load
+  // Initialize with user from Supabase Auth
   useEffect(() => {
-    if (!userProfile && !isOnboarded) {
-      // Set default user profile
-      setUserProfile({
-        id: '1',
-        name: 'Usuario',
-        diabetesType: 'T1D',
-        glucoseRange: { min: 70, max: 180 },
-        weight: 70,
-        height: 175,
-        insulinType: 'Rápida + Basal',
-      })
-
-      // Log app launch
-      logEvent('1', 'app_launched', { timestamp: new Date().toISOString() })
+    const initializeUser = async () => {
+      try {
+        const user = await getCurrentUser()
+        if (user && !userProfile) {
+          setUserProfile({
+            id: user.id,
+            name: user.user_metadata?.name || 'Usuario',
+            diabetesType: (user.user_metadata?.diabetesType as any) || 'T1D',
+            glucoseRange: user.user_metadata?.glucoseRange || { min: 70, max: 180 },
+            weight: user.user_metadata?.weight || 70,
+            height: user.user_metadata?.height || 175,
+            insulinType: user.user_metadata?.insulinType || 'Rápida + Basal',
+          })
+          logEvent(user.id, 'app_launched', { timestamp: new Date().toISOString() })
+        }
+      } catch (error) {
+        console.error('Failed to initialize user:', error)
+      }
     }
-  }, [userProfile, isOnboarded, setUserProfile, setIsOnboarded])
+
+    initializeUser()
+  }, [userProfile, setUserProfile])
 
   // Background sync of health data every 15 minutes
   useEffect(() => {
