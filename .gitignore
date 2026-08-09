@@ -45,5 +45,5 @@ yarn-error.*
 supabase/.temp/
 .env.production.local
 .vercel
-.env*
+.env.*
 .env.production
