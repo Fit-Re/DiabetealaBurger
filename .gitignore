@@ -46,3 +46,4 @@ supabase/.temp/
 .env.production.local
 .vercel
 .env*
+.env.production
