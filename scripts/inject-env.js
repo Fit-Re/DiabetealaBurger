@@ -1,12 +1,26 @@
 const fs = require('fs');
 const path = require('path');
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+// Intentar leer las variables de diferentes fuentes
+let supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+let supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+// Si no están en las variables de entorno, intentar leer del .env.production
+if (!supabaseUrl || !supabaseAnonKey) {
+  const envPath = path.join(__dirname, '../.env.production');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf-8');
+    const urlMatch = envContent.match(/EXPO_PUBLIC_SUPABASE_URL=(.+)/);
+    const keyMatch = envContent.match(/EXPO_PUBLIC_SUPABASE_ANON_KEY=(.+)/);
+
+    if (urlMatch) supabaseUrl = urlMatch[1].trim();
+    if (keyMatch) supabaseAnonKey = keyMatch[1].trim();
+  }
+}
 
 console.log('Injecting environment variables...');
-console.log('URL:', supabaseUrl ? 'set' : 'missing');
-console.log('Key:', supabaseAnonKey ? 'set' : 'missing');
+console.log('URL:', supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'missing');
+console.log('Key:', supabaseAnonKey ? `${supabaseAnonKey.substring(0, 20)}...` : 'missing');
 
 const indexHtmlPath = path.join(__dirname, '../dist/index.html');
 
