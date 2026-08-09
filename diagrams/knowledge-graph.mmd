@@ -1,0 +1,41 @@
+graph TD
+    A["📊 Patient Pattern<br/>Morning high glucose<br/>↑ 120-160 mg/dL"] --> B["🔤 Embedding<br/>Gemini Vector"]
+
+    C["📚 Research Paper<br/>'Meal Timing &<br/>Glucose Control'"] --> D["🔤 Embedding<br/>Gemini Vector"]
+
+    E["📄 Paper 2<br/>'Stress & Cortisol<br/>Effects'"] --> F["🔤 Embedding"]
+
+    G["📄 Paper 3<br/>'Sleep Quality &<br/>Fasting Glucose'"] --> H["🔤 Embedding"]
+
+    B --> I["🧠 Vector Search<br/>Cosine Similarity"]
+    D --> I
+    F --> I
+    H --> I
+
+    I --> J{"Relevance<br/>Score > 0.7?"}
+
+    J -->|High| K["🎯 Match Found<br/>Paper 1 ✓"]
+    J -->|Medium| L["⚠️ Partial Match<br/>Paper 2 ⚡"]
+    J -->|Low| M["❌ No Match<br/>Paper 3"]
+
+    K --> N["💬 Evidence Link<br/>Patient Pattern ↔ Paper"]
+    L --> N
+
+    N --> O["⭐ Evidence Strength<br/>High / Medium / Low"]
+    O --> P["📖 Evidence Screen<br/>Ranked + Annotated"]
+
+    Q["👤 User Feedback<br/>'This helps!' 👍"] --> R["📈 Feedback Loop<br/>Adjust Weights"]
+    R --> I
+
+    S["📊 New Readings<br/>Pattern Updates"] --> T["🔄 Re-index<br/>Re-embed & Re-rank"]
+    T --> I
+
+    style A fill:#f59e0b,color:#fff
+    style C fill:#8b5cf6,color:#fff
+    style E fill:#8b5cf6,color:#fff
+    style G fill:#8b5cf6,color:#fff
+    style I fill:#06b6d4,color:#fff
+    style K fill:#16a34a,color:#fff
+    style L fill:#f59e0b,color:#fff
+    style P fill:#10b981,color:#fff
+    style R fill:#ec4899,color:#fff

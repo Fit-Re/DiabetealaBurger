@@ -1,0 +1,34 @@
+graph LR
+    A["👤 Patients<br/>id • name • email<br/>diabetesType<br/>glucoseRange"]
+
+    B["📊 Readings<br/>id • patientId • timestamp<br/>value • unit • source<br/>confidence"]
+
+    C["💊 Insulin Events<br/>id • patientId • timestamp<br/>type • dosage • notes"]
+
+    D["🔍 Patterns<br/>id • patientId<br/>description • confidence<br/>timePeriod"]
+
+    E["📚 Research Papers<br/>id • title • authors<br/>journal • year<br/>evidenceStrength"]
+
+    F["🔤 Embeddings<br/>id • paperId • vector<br/>relevanceScore"]
+
+    G["🧠 Pattern Memory<br/>id • patientId<br/>patternId • evidenceId<br/>matchStrength"]
+
+    A -->|has many| B
+    A -->|has many| C
+    A -->|has many| D
+    A -->|has many| G
+
+    B -->|grouped by| D
+    C -->|correlates with| D
+
+    E -->|generates| F
+    F -->|links to| G
+    D -->|matches with| E
+
+    style A fill:#3b82f6,color:#fff
+    style B fill:#06b6d4,color:#fff
+    style C fill:#06b6d4,color:#fff
+    style D fill:#f59e0b,color:#fff
+    style E fill:#8b5cf6,color:#fff
+    style F fill:#8b5cf6,color:#fff
+    style G fill:#10b981,color:#fff

@@ -1,0 +1,32 @@
+graph TD
+    A["📡 LibreLink CGM<br/>Real-time Glucose"] --> B["🔄 Sync Service<br/>Edge Function"]
+    C["💊 Ultrahuman Ring<br/>Vitals + Sleep"] --> B
+    D["🩺 Manual Entry<br/>User Input"] --> B
+
+    B --> E["✅ Validate & Normalize<br/>Timestamp • Unit • Source"]
+    E --> F["💾 Supabase<br/>readings table"]
+
+    F --> G["⚡ Trigger: New Reading<br/>Event"]
+    G --> H["🧠 Pattern Detection<br/>Meal • Exercise • Stress"]
+
+    H --> I["📊 Aggregation<br/>Stats • Trends • Stability"]
+    I --> J["🎯 User Dashboard<br/>HomeScreen"]
+
+    F --> K["🔤 Embedding Pipeline<br/>Gemini"]
+    K --> L["📚 Vector Store<br/>Embedding Index"]
+    L --> M["🔍 Semantic Search<br/>Paper Relevance"]
+
+    M --> N["📰 Knowledge Graph<br/>Papers Matched to Patterns"]
+    N --> O["💡 Evidence Screen<br/>Ranked Results"]
+
+    H --> P["📈 Trends Analytics<br/>7d / 30d View"]
+    P --> Q["📊 TrendsScreen<br/>Charts + Stats"]
+
+    style A fill:#ec4899,color:#fff
+    style C fill:#ec4899,color:#fff
+    style D fill:#ec4899,color:#fff
+    style F fill:#06b6d4,color:#fff
+    style L fill:#8b5cf6,color:#fff
+    style J fill:#10b981,color:#fff
+    style O fill:#10b981,color:#fff
+    style Q fill:#10b981,color:#fff

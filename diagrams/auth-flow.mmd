@@ -1,0 +1,31 @@
+graph TD
+    A["👤 User<br/>Expo App"] --> B["🔐 Google OAuth<br/>Sign-In Flow"]
+
+    B --> C["🎯 Supabase Auth<br/>OAuth Provider"]
+    C --> D["✅ Auth Verified<br/>JWT Token Issued"]
+
+    D --> E["💾 Session Storage<br/>Local AsyncStorage"]
+
+    E --> F["🔑 JWT in Header<br/>Authorization Bearer"]
+    F --> G["🛡️ RLS Policies<br/>PostgreSQL Row-Level"]
+
+    G --> H{"User ID Match?"}
+    H -->|Yes| I["✅ Access Granted<br/>User's Data Only"]
+    H -->|No| J["❌ Access Denied<br/>403 Forbidden"]
+
+    I --> K["📱 Authenticated Screens<br/>Home • Trends • Evidence"]
+
+    L["⏰ Token Expiry<br/>Auto-Refresh"] --> M["🔄 Silent Re-Auth<br/>Google IdP"]
+    M --> D
+
+    N["👋 Sign Out<br/>User Action"] --> O["🗑️ Clear Session<br/>Delete AsyncStorage"]
+    O --> P["🚪 Unauthenticated<br/>Back to Login"]
+
+    style A fill:#3b82f6,color:#fff
+    style B fill:#ec4899,color:#fff
+    style C fill:#10b981,color:#fff
+    style D fill:#10b981,color:#fff
+    style G fill:#f59e0b,color:#fff
+    style I fill:#16a34a,color:#fff
+    style J fill:#dc2626,color:#fff
+    style K fill:#10b981,color:#fff

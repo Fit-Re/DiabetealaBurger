@@ -1,0 +1,29 @@
+graph LR
+    A["📱 React Native App<br/>Expo"] --> B["⚡ Navigation<br/>Bottom Tabs"]
+    B --> H1["HomeScreen"]
+    B --> H2["TrendsScreen"]
+    B --> H3["EvidenceScreen"]
+    B --> H4["SettingsScreen"]
+
+    H1 --> C["📊 Zustand Store<br/>Readings + Patterns"]
+    H2 --> C
+    H3 --> C
+    H4 --> C
+
+    C --> D["🔌 Supabase Client<br/>Auth + Realtime"]
+
+    D --> E["🛠️ Supabase Platform<br/>PostgreSQL + RLS"]
+    D --> F["🔐 Auth Service<br/>JWT + OAuth"]
+
+    E --> G["💾 Database<br/>patients • readings • insulin<br/>evidence • embeddings"]
+    F --> I["👤 Session Mgmt<br/>Google OAuth"]
+
+    D --> J["🌐 Edge Functions<br/>LibreLink Sync<br/>Gemini Embedding"]
+    J --> K["📚 Knowledge Base<br/>Research Papers<br/>Embeddings Index"]
+
+    style A fill:#4f46e5,color:#fff
+    style D fill:#10b981,color:#fff
+    style E fill:#10b981,color:#fff
+    style G fill:#06b6d4,color:#fff
+    style J fill:#f59e0b,color:#fff
+    style K fill:#8b5cf6,color:#fff
