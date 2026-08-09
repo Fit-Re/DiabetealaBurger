@@ -11,9 +11,12 @@
   ],
   "routes": [
     {
-      "src": "/(_expo|favicon\\.ico|metadata\\.json|test\\.html)",
-      "dest": "/$1",
-      "status": 200
+      "src": "/test.html",
+      "dest": "/test.html"
+    },
+    {
+      "src": "/(_expo|favicon\\.ico|metadata\\.json)",
+      "dest": "/$1"
     },
     {
       "src": "/(.*)",
