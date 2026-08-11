@@ -130,8 +130,12 @@ const light: Palette = {
 };
 
 const dark: Palette = {
+  // En claro las tarjetas (`surface`, blanco) resaltan sobre la página
+  // (`bgSecondary`, gris muy claro). En oscuro hay que invertir la relación: la
+  // página se hunde y la tarjeta se eleva. Si ambos comparten valor, las
+  // tarjetas desaparecen contra el fondo.
   bg: "#111827",
-  bgSecondary: "#1f2937",
+  bgSecondary: "#0f172a",
   bgTertiary: "#374151",
   surface: "#1f2937",
   overlay: "rgba(0, 0, 0, 0.7)",

@@ -1035,8 +1035,15 @@ function PatientPreferencesSection() {
         </Text>
       </Pressable>
 
+      {/* `strong` y no `fg`: sobre fondo claro, fg queda en 3.30:1 e incumple AA. */}
       {saved && (
-        <Text style={{ color: palette.success, marginTop: 10, textAlign: "center" }}>
+        <Text
+          style={{
+            color: palette.status.success.strong,
+            marginTop: 10,
+            textAlign: "center",
+          }}
+        >
           ✓ Preferencias guardadas
         </Text>
       )}
