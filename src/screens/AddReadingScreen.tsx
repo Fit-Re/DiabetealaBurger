@@ -2,19 +2,21 @@ import React, { useState } from "react";
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   Pressable,
   ScrollView,
   Alert,
   Platform,
 } from "react-native";
+import { ThemedTextInput } from "../components/ThemedTextInput";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { insertReading } from "../db/database";
 import { runBackgroundTasks } from "../lib/autoEnrich";
 import type { TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
 import { mergeDatePart, mergeTimePart, formatDate, formatTime } from "../lib/dateTimeUtils";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { Palette } from "../theme";
 
 const TREND_OPTIONS: { key: TrendArrow; label: string }[] = [
   { key: "rising_fast", label: TREND_LABELS.rising_fast },
@@ -25,6 +27,7 @@ const TREND_OPTIONS: { key: TrendArrow; label: string }[] = [
 ];
 
 export default function AddReadingScreen({ onSaved }: { onSaved?: () => void }) {
+  const styles = useThemedStyles(createStyles);
   const [value, setValue] = useState("");
   const [trend, setTrend] = useState<TrendArrow>(null);
   const [notes, setNotes] = useState("");
@@ -79,7 +82,7 @@ export default function AddReadingScreen({ onSaved }: { onSaved?: () => void }) 
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.label}>Valor de glucosa (mg/dL)</Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         keyboardType="decimal-pad"
         placeholder="Ej. 110"
@@ -144,7 +147,7 @@ export default function AddReadingScreen({ onSaved }: { onSaved?: () => void }) 
       </View>
 
       <Text style={styles.label}>Notas (opcional)</Text>
-      <TextInput
+      <ThemedTextInput
         style={[styles.input, styles.notesInput]}
         placeholder="Ej. después de correr, antes de comer..."
         value={notes}
@@ -165,60 +168,61 @@ export default function AddReadingScreen({ onSaved }: { onSaved?: () => void }) 
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb", padding: 16 },
-  label: { fontSize: 14, fontWeight: "600", color: "#374151", marginBottom: 6, marginTop: 12 },
-  input: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  pickerText: { fontSize: 15, color: "#111827", textAlign: "center" },
-  row: { flexDirection: "row" },
-  flex1: { flex: 1 },
-  marginLeft: { marginLeft: 8 },
-  pickerBox: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    alignItems: "center",
-    paddingBottom: 8,
-  },
-  doneButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    marginTop: 4,
-  },
-  doneButtonText: { color: "#fff", fontWeight: "700" },
-  notesInput: { minHeight: 80, textAlignVertical: "top" },
-  trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  trendChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  trendChipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  trendChipText: { fontSize: 13, color: "#374151" },
-  trendChipTextSelected: { color: "#fff" },
-  hint: { fontSize: 12, color: "#9ca3af", marginTop: 6 },
-  saveButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    marginTop: 20,
-    marginBottom: 40,
-  },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bgSecondary, padding: 16 },
+    label: { fontSize: 14, fontWeight: "600", color: c.textBody, marginBottom: 6, marginTop: 12 },
+    input: {
+      backgroundColor: c.surface,
+      borderRadius: 10,
+      padding: 12,
+      fontSize: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    pickerText: { fontSize: 15, color: c.text, textAlign: "center" },
+    row: { flexDirection: "row" },
+    flex1: { flex: 1 },
+    marginLeft: { marginLeft: 8 },
+    pickerBox: {
+      backgroundColor: c.surface,
+      borderRadius: 10,
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      paddingBottom: 8,
+    },
+    doneButton: {
+      backgroundColor: c.accent,
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 24,
+      marginTop: 4,
+    },
+    doneButtonText: { color: c.textOnAccent, fontWeight: "700" },
+    notesInput: { minHeight: 80, textAlignVertical: "top" },
+    trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    trendChip: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    trendChipSelected: { backgroundColor: c.accent, borderColor: c.accent },
+    trendChipText: { fontSize: 13, color: c.textBody },
+    trendChipTextSelected: { color: c.textOnAccent },
+    hint: { fontSize: 12, color: c.textMuted, marginTop: 6 },
+    saveButton: {
+      backgroundColor: c.accent,
+      borderRadius: 12,
+      padding: 16,
+      alignItems: "center",
+      marginTop: 20,
+      marginBottom: 40,
+    },
+    saveButtonDisabled: { opacity: 0.6 },
+    saveButtonText: { color: c.textOnAccent, fontSize: 16, fontWeight: "700" },
+  });

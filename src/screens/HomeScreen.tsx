@@ -37,6 +37,8 @@ import type {
 import type { ActivationResult } from "../lib/knowledgeGraph";
 import { TARGET_RANGE, TREND_LABELS } from "../types";
 import { useAuth } from "../lib/auth";
+import { useThemedStyles, usePalette } from "../hooks/useThemedStyles";
+import { spacing, borderRadius, type Palette } from "../theme";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PATTERN_WINDOW_MS = 14 * DAY_MS;
@@ -53,6 +55,7 @@ function dayLabel(day: Date): string {
 }
 
 export default function HomeScreen() {
+  const styles = useThemedStyles(createStyles);
   const [dayStart, setDayStart] = useState(() => startOfDay(new Date()));
   const [readings, setReadings] = useState<GlucoseReading[]>([]);
   const [patterns, setPatterns] = useState<PatternFinding[]>([]);
@@ -285,6 +288,7 @@ function CurrentReadingCard({
   targetLow: number;
   targetHigh: number;
 }) {
+  const styles = useThemedStyles(createStyles);
   const status =
     reading.value < targetLow
       ? "low"
@@ -325,6 +329,7 @@ function CurrentReadingCard({
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.statCard}>
       <Text style={styles.statValue}>{value}</Text>
@@ -341,6 +346,7 @@ function fmtDuration(minutes: number | null): string {
 }
 
 function LifestyleCard({ metric }: { metric: LifestyleMetric }) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.lifestyleCard}>
       <Text style={styles.lifestyleDate}>
@@ -372,15 +378,17 @@ const SEVERITY_LABELS: Record<PatternFinding["severity"], string> = {
 
 // Badge de tendencia (Fase 4): color según si el patrón mejora, empeora o se
 // mantiene respecto a la corrida previa. Neutro para "nuevo"/"estable".
-const TREND_BADGES: Record<
+const trendBadges = (
+  c: Palette
+): Record<
   NonNullable<PatternFinding["trend"]>,
   { label: string; color: string; bg: string }
-> = {
-  new: { label: "nuevo", color: "#374151", bg: "#f3f4f6" },
-  worsening: { label: "↑ empeorando", color: "#b91c1c", bg: "#fee2e2" },
-  improving: { label: "↓ mejorando", color: "#15803d", bg: "#dcfce7" },
-  stable: { label: "= estable", color: "#374151", bg: "#f3f4f6" },
-};
+> => ({
+  new: { label: "nuevo", color: c.textBody, bg: c.bgTertiary },
+  worsening: { label: "↑ empeorando", color: c.status.error.strong, bg: c.status.error.surface },
+  improving: { label: "↓ mejorando", color: c.status.success.strong, bg: c.status.success.surface },
+  stable: { label: "= estable", color: c.textBody, bg: c.bgTertiary },
+});
 
 const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], string> = {
   strong: "Sólida",
@@ -389,6 +397,8 @@ const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], st
 };
 
 function PatternCard({ pattern }: { pattern: PatternFinding }) {
+  const styles = useThemedStyles(createStyles);
+  const badges = trendBadges(usePalette());
   const { session } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -476,12 +486,12 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
             style={[
               styles.patternTrendBadge,
               {
-                color: TREND_BADGES[pattern.trend].color,
-                backgroundColor: TREND_BADGES[pattern.trend].bg,
+                color: badges[pattern.trend].color,
+                backgroundColor: badges[pattern.trend].bg,
               },
             ]}
           >
-            {TREND_BADGES[pattern.trend].label}
+            {badges[pattern.trend].label}
           </Text>
         )}
         <Text style={styles.patternSeverity}>{SEVERITY_LABELS[pattern.severity]}</Text>
@@ -581,202 +591,203 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb", padding: 16 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: "#111827" },
-  subtitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginTop: 16,
-    marginBottom: 8,
-    color: "#111827",
-  },
-  dayNavRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  dayNavLabelWrap: { flex: 1, alignItems: "center" },
-  dayNavToday: {
-    fontSize: 11,
-    color: "#2563eb",
-    fontWeight: "600",
-    marginTop: -6,
-    marginBottom: 8,
-  },
-  dayNavButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayNavButtonDisabled: { opacity: 0.3 },
-  dayNavArrow: { fontSize: 22, fontWeight: "700", color: "#111827" },
-  dayNavArrowDisabled: { color: "#9ca3af" },
-  chartCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-  },
-  legendRow: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: 8, paddingHorizontal: 4 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
-  legendSwatch: { width: 10, height: 10, borderRadius: 2 },
-  legendRange: { backgroundColor: "#dcfce7" },
-  legendLine: { width: 12, height: 0, borderTopWidth: 2, borderStyle: "dashed" },
-  legendLineLow: { borderTopColor: "#dc2626" },
-  legendLineHigh: { borderTopColor: "#d97706" },
-  legendText: { fontSize: 10, color: "#6b7280" },
-  readingCard: {
-    flexDirection: "row",
-    borderRadius: 12,
-    marginBottom: 12,
-    overflow: "hidden",
-  },
-  readingCardBar: { width: 6 },
-  readingCardContent: { flex: 1, paddingVertical: 12, paddingHorizontal: 14 },
-  readingCardInRange: { backgroundColor: "#f0fdf4" },
-  readingCardLow: { backgroundColor: "#fef2f2" },
-  readingCardHigh: { backgroundColor: "#fffbeb" },
-  readingBarInRange: { backgroundColor: "#16a34a" },
-  readingBarLow: { backgroundColor: "#dc2626" },
-  readingBarHigh: { backgroundColor: "#d97706" },
-  readingCardLabel: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
-  readingCardValueRow: { flexDirection: "row", alignItems: "baseline", gap: 6, marginTop: 2 },
-  readingCardValue: { fontSize: 34, fontWeight: "800", color: "#111827" },
-  readingCardUnit: { fontSize: 13, color: "#6b7280" },
-  readingCardTrend: { fontSize: 18, color: "#374151", marginLeft: 2 },
-  readingCardMeta: { fontSize: 11, color: "#9ca3af", marginTop: 2 },
-  emptyChart: {
-    height: 100,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  emptyText: { color: "#6b7280", textAlign: "center" },
-  statsRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
-  lifestyleCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-  },
-  lifestyleDate: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6b7280",
-    marginBottom: 8,
-    textTransform: "capitalize",
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
-  },
-  statValue: { fontSize: 18, fontWeight: "700", color: "#111827" },
-  statLabel: { fontSize: 11, color: "#6b7280", marginTop: 2, textAlign: "center" },
-  readingRow: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 6,
-  },
-  readingValue: { fontSize: 16, fontWeight: "600", color: "#111827" },
-  readingMeta: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  hint: { fontSize: 11, color: "#9ca3af", textAlign: "center", marginTop: 8 },
-  disclaimer: {
-    fontSize: 11,
-    color: "#9ca3af",
-    textAlign: "center",
-    marginTop: 16,
-    marginBottom: 32,
-    fontStyle: "italic",
-  },
-  patternCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-  },
-  patternHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  patternTitle: { fontSize: 14, fontWeight: "700", color: "#111827", flex: 1, marginRight: 8 },
-  patternSeverity: { fontSize: 11, fontWeight: "600" },
-  patternTrendBadge: {
-    fontSize: 10,
-    fontWeight: "700",
-    marginRight: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    overflow: "hidden",
-  },
-  patternDescription: { fontSize: 12, color: "#374151", marginTop: 6, lineHeight: 17 },
-  patternEvidence: { marginTop: 10, borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingTop: 10 },
-  evidenceCard: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
-  },
-  evidenceTitle: { fontSize: 12, fontWeight: "700", color: "#111827" },
-  evidenceMeta: { fontSize: 11, color: "#6b7280", marginTop: 2 },
-  synthesizeButton: {
-    backgroundColor: "#111827",
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  synthesizeButtonText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  disabled: { opacity: 0.6 },
-  synthesisBox: {
-    backgroundColor: "#eef2ff",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 10,
-  },
-  synthesisStrength: { fontSize: 11, fontWeight: "700", color: "#4338ca", marginBottom: 6 },
-  synthesisSectionTitle: { fontSize: 11, fontWeight: "700", color: "#111827", marginTop: 6 },
-  synthesisText: { fontSize: 12, color: "#374151", lineHeight: 17, marginTop: 2 },
-  synthesisCaveats: {
-    fontSize: 11,
-    color: "#92400e",
-    lineHeight: 16,
-    marginTop: 2,
-    fontStyle: "italic",
-  },
-  // Feedback buttons for pattern memory (Phase 3 Week 3)
-  feedbackRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 10,
-  },
-  feedbackButton: {
-    flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    backgroundColor: "#f9fafb",
-    alignItems: "center",
-  },
-  feedbackButtonActive: {
-    backgroundColor: "#dbeafe",
-    borderColor: "#2563eb",
-  },
-  feedbackButtonText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6b7280",
-  },
-  feedbackButtonTextActive: {
-    color: "#2563eb",
-  },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bgSecondary, padding: spacing.md },
+    title: { fontSize: 20, fontWeight: "700", marginBottom: spacing.sm, color: c.text },
+    subtitle: {
+      fontSize: 16,
+      fontWeight: "600",
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+      color: c.text,
+    },
+    dayNavRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    dayNavLabelWrap: { flex: 1, alignItems: "center" },
+    dayNavToday: {
+      fontSize: 11,
+      color: c.accent,
+      fontWeight: "600",
+      marginTop: -6,
+      marginBottom: spacing.sm,
+    },
+    dayNavButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: c.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    dayNavButtonDisabled: { opacity: 0.3 },
+    dayNavArrow: { fontSize: 22, fontWeight: "700", color: c.text },
+    dayNavArrowDisabled: { color: c.textMuted },
+    chartCard: {
+      backgroundColor: c.surface,
+      borderRadius: borderRadius.lg,
+      padding: 12,
+      marginBottom: spacing.sm,
+    },
+    legendRow: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginTop: spacing.sm, paddingHorizontal: spacing.xs },
+    legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+    legendSwatch: { width: 10, height: 10, borderRadius: 2 },
+    legendRange: { backgroundColor: c.status.success.surface },
+    legendLine: { width: 12, height: 0, borderTopWidth: 2, borderStyle: "dashed" },
+    legendLineLow: { borderTopColor: c.status.error.fg },
+    legendLineHigh: { borderTopColor: c.status.warning.fg },
+    legendText: { fontSize: 10, color: c.textSecondary },
+    readingCard: {
+      flexDirection: "row",
+      borderRadius: borderRadius.lg,
+      marginBottom: 12,
+      overflow: "hidden",
+    },
+    readingCardBar: { width: 6 },
+    readingCardContent: { flex: 1, paddingVertical: 12, paddingHorizontal: 14 },
+    readingCardInRange: { backgroundColor: c.status.success.surfaceSubtle },
+    readingCardLow: { backgroundColor: c.status.error.surfaceSubtle },
+    readingCardHigh: { backgroundColor: c.status.warning.surfaceSubtle },
+    readingBarInRange: { backgroundColor: c.status.success.fg },
+    readingBarLow: { backgroundColor: c.status.error.fg },
+    readingBarHigh: { backgroundColor: c.status.warning.fg },
+    readingCardLabel: { fontSize: 12, fontWeight: "600", color: c.textSecondary },
+    readingCardValueRow: { flexDirection: "row", alignItems: "baseline", gap: 6, marginTop: 2 },
+    readingCardValue: { fontSize: 34, fontWeight: "800", color: c.text },
+    readingCardUnit: { fontSize: 13, color: c.textSecondary },
+    readingCardTrend: { fontSize: 18, color: c.textBody, marginLeft: 2 },
+    readingCardMeta: { fontSize: 11, color: c.textMuted, marginTop: 2 },
+    emptyChart: {
+      height: 100,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: c.surface,
+      borderRadius: borderRadius.lg,
+      marginBottom: spacing.sm,
+    },
+    emptyText: { color: c.textSecondary, textAlign: "center" },
+    statsRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.sm },
+    lifestyleCard: {
+      backgroundColor: c.surface,
+      borderRadius: borderRadius.lg,
+      padding: 12,
+      marginBottom: spacing.sm,
+    },
+    lifestyleDate: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: c.textSecondary,
+      marginBottom: spacing.sm,
+      textTransform: "capitalize",
+    },
+    statCard: {
+      flex: 1,
+      backgroundColor: c.surface,
+      borderRadius: borderRadius.lg,
+      padding: 12,
+      alignItems: "center",
+    },
+    statValue: { fontSize: 18, fontWeight: "700", color: c.text },
+    statLabel: { fontSize: 11, color: c.textSecondary, marginTop: 2, textAlign: "center" },
+    readingRow: {
+      backgroundColor: c.surface,
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 6,
+    },
+    readingValue: { fontSize: 16, fontWeight: "600", color: c.text },
+    readingMeta: { fontSize: 12, color: c.textSecondary, marginTop: 2 },
+    hint: { fontSize: 11, color: c.textMuted, textAlign: "center", marginTop: spacing.sm },
+    disclaimer: {
+      fontSize: 11,
+      color: c.textMuted,
+      textAlign: "center",
+      marginTop: spacing.md,
+      marginBottom: spacing.xl,
+      fontStyle: "italic",
+    },
+    patternCard: {
+      backgroundColor: c.surface,
+      borderRadius: borderRadius.lg,
+      padding: 14,
+      marginBottom: spacing.sm,
+    },
+    patternHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    patternTitle: { fontSize: 14, fontWeight: "700", color: c.text, flex: 1, marginRight: spacing.sm },
+    patternSeverity: { fontSize: 11, fontWeight: "600" },
+    patternTrendBadge: {
+      fontSize: 10,
+      fontWeight: "700",
+      marginRight: spacing.sm,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 6,
+      overflow: "hidden",
+    },
+    patternDescription: { fontSize: 12, color: c.textBody, marginTop: 6, lineHeight: 17 },
+    patternEvidence: { marginTop: 10, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 10 },
+    evidenceCard: {
+      backgroundColor: c.bgSecondary,
+      borderRadius: borderRadius.md,
+      padding: 10,
+      marginBottom: 6,
+    },
+    evidenceTitle: { fontSize: 12, fontWeight: "700", color: c.text },
+    evidenceMeta: { fontSize: 11, color: c.textSecondary, marginTop: 2 },
+    synthesizeButton: {
+      backgroundColor: c.inverseSurface,
+      borderRadius: 10,
+      padding: 12,
+      alignItems: "center",
+      marginTop: spacing.sm,
+    },
+    synthesizeButtonText: { color: c.onInverseSurface, fontSize: 13, fontWeight: "700" },
+    disabled: { opacity: 0.6 },
+    synthesisBox: {
+      backgroundColor: c.status.info.surface,
+      borderRadius: 10,
+      padding: 12,
+      marginTop: 10,
+    },
+    synthesisStrength: { fontSize: 11, fontWeight: "700", color: c.status.info.strong, marginBottom: 6 },
+    synthesisSectionTitle: { fontSize: 11, fontWeight: "700", color: c.text, marginTop: 6 },
+    synthesisText: { fontSize: 12, color: c.textBody, lineHeight: 17, marginTop: 2 },
+    synthesisCaveats: {
+      fontSize: 11,
+      color: c.status.warning.strong,
+      lineHeight: 16,
+      marginTop: 2,
+      fontStyle: "italic",
+    },
+    // Feedback buttons for pattern memory (Phase 3 Week 3)
+    feedbackRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginTop: 10,
+    },
+    feedbackButton: {
+      flex: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: 10,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.bgSecondary,
+      alignItems: "center",
+    },
+    feedbackButtonActive: {
+      backgroundColor: c.accentLight,
+      borderColor: c.accent,
+    },
+    feedbackButtonText: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: c.textSecondary,
+    },
+    feedbackButtonTextActive: {
+      color: c.accent,
+    },
+  });

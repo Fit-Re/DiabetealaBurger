@@ -2,13 +2,13 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   Pressable,
   ScrollView,
   Alert,
   Platform,
 } from "react-native";
+import { ThemedTextInput } from "../components/ThemedTextInput";
 import { useFocusEffect } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import {
@@ -33,6 +33,8 @@ import {
   searchMedicationReference,
 } from "../data/medicationReference";
 import { searchKnowledge } from "../lib/knowledgeBase";
+import { useThemedStyles } from "../hooks/useThemedStyles";
+import type { Palette } from "../theme";
 
 const TYPE_OPTIONS: MedicationType[] = [
   "insulin_basal",
@@ -48,6 +50,7 @@ function startOfTodayMs(): number {
 }
 
 export default function MedicationsScreen() {
+  const styles = useThemedStyles(createStyles);
   const [medications, setMedications] = useState<Medication[]>([]);
   const [logsToday, setLogsToday] = useState<MedicationLog[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -333,7 +336,7 @@ export default function MedicationsScreen() {
           {loggingMedication?.id === m.id && (
             <View style={styles.logForm}>
               <Text style={styles.label}>Dosis (opcional)</Text>
-              <TextInput
+              <ThemedTextInput
                 style={styles.input}
                 placeholder="Ej. 10"
                 keyboardType="decimal-pad"
@@ -408,7 +411,7 @@ export default function MedicationsScreen() {
       {showAddForm && (
         <View style={styles.formBox}>
           <Text style={styles.label}>Nombre</Text>
-          <TextInput
+          <ThemedTextInput
             style={styles.input}
             placeholder="Ej. Lantus, Humalog, Metformina"
             value={name}
@@ -503,7 +506,7 @@ export default function MedicationsScreen() {
           <View style={styles.row}>
             <View style={styles.flex1}>
               <Text style={styles.label}>Dosis</Text>
-              <TextInput
+              <ThemedTextInput
                 style={styles.input}
                 placeholder="Ej. 10"
                 keyboardType="decimal-pad"
@@ -513,7 +516,7 @@ export default function MedicationsScreen() {
             </View>
             <View style={[styles.flex1, styles.marginLeft]}>
               <Text style={styles.label}>Unidad</Text>
-              <TextInput
+              <ThemedTextInput
                 style={styles.input}
                 placeholder="Ej. unidades, mg"
                 value={doseUnit}
@@ -524,7 +527,7 @@ export default function MedicationsScreen() {
 
           <Text style={styles.label}>Horarios de toma</Text>
           <View style={styles.row}>
-            <TextInput
+            <ThemedTextInput
               style={[styles.input, styles.flex1]}
               placeholder="HH:MM, ej. 08:00"
               value={timeInput}
@@ -549,7 +552,7 @@ export default function MedicationsScreen() {
           )}
 
           <Text style={styles.label}>Notas (opcional)</Text>
-          <TextInput
+          <ThemedTextInput
             style={[styles.input, styles.notesInput]}
             placeholder="Ej. tomar con alimentos, ajustar si hay ejercicio..."
             value={notes}
@@ -588,196 +591,197 @@ export default function MedicationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb", padding: 16 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 12, color: "#111827" },
-  emptyText: { color: "#6b7280", marginBottom: 12 },
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-  },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cardTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
-  cardType: { fontSize: 11, color: "#2563eb", fontWeight: "600" },
-  cardMeta: { fontSize: 12, color: "#6b7280", marginTop: 4 },
-  cardActions: { flexDirection: "row", gap: 8, marginTop: 10 },
-  logButton: {
-    flex: 1,
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  logButtonText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  deleteButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-  },
-  deleteButtonText: { color: "#dc2626", fontSize: 13, fontWeight: "600" },
-  logForm: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-  },
-  pickerText: { fontSize: 15, color: "#111827", textAlign: "center" },
-  pickerBox: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    alignItems: "center",
-    paddingBottom: 8,
-  },
-  doneButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    marginTop: 4,
-  },
-  doneButtonText: { color: "#fff", fontWeight: "700" },
-  interactionCard: {
-    backgroundColor: "#fffbeb",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#fde68a",
-  },
-  interactionText: { fontSize: 12, color: "#92400e", lineHeight: 17 },
-  suggestionBox: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    marginTop: 4,
-    overflow: "hidden",
-  },
-  suggestionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
-  },
-  suggestionText: { fontSize: 14, color: "#111827", fontWeight: "600" },
-  suggestionMeta: { fontSize: 11, color: "#2563eb" },
-  referenceCard: {
-    backgroundColor: "#eef2ff",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
-  },
-  referenceTitle: { fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 4 },
-  referenceText: { fontSize: 12, color: "#374151", lineHeight: 17, marginBottom: 6 },
-  referenceMeta: { fontSize: 11, color: "#4338ca", marginTop: 2 },
-  referenceSource: { fontSize: 10, color: "#6b7280", marginTop: 6, fontStyle: "italic" },
-  referenceDisclaimer: {
-    fontSize: 10,
-    color: "#92400e",
-    marginTop: 6,
-    fontStyle: "italic",
-  },
-  evidenceButton: {
-    backgroundColor: "#111827",
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: "center",
-    marginTop: 10,
-  },
-  evidenceButtonText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  evidenceCard: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 10,
-    marginTop: 8,
-  },
-  evidenceTitle: { fontSize: 12, fontWeight: "700", color: "#111827" },
-  evidenceMeta: { fontSize: 11, color: "#6b7280", marginTop: 2 },
-  addButton: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    marginBottom: 16,
-  },
-  addButtonText: { color: "#2563eb", fontWeight: "700" },
-  formBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 16 },
-  label: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 6, marginTop: 10 },
-  input: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  notesInput: { minHeight: 70, textAlignVertical: "top" },
-  row: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
-  flex1: { flex: 1 },
-  marginLeft: { marginLeft: 8 },
-  chipGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
-  chip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: "#f9fafb",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  chipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  chipText: { fontSize: 12, color: "#374151" },
-  chipTextSelected: { color: "#fff" },
-  timeChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 16,
-    backgroundColor: "#eef2ff",
-  },
-  timeChipText: { fontSize: 12, color: "#4338ca", fontWeight: "600" },
-  smallAddButton: {
-    backgroundColor: "#111827",
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-  },
-  smallAddButtonText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  formActions: { flexDirection: "row", gap: 8, marginTop: 16 },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  cancelButtonText: { color: "#374151", fontWeight: "600" },
-  saveButton: {
-    flex: 1,
-    backgroundColor: "#2563eb",
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 10,
-  },
-  saveButtonText: { color: "#fff", fontWeight: "700" },
-  disabled: { opacity: 0.6 },
-  disclaimer: {
-    fontSize: 11,
-    color: "#9ca3af",
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 40,
-    fontStyle: "italic",
-  },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bgSecondary, padding: 16 },
+    title: { fontSize: 20, fontWeight: "700", marginBottom: 12, color: c.text },
+    emptyText: { color: c.textSecondary, marginBottom: 12 },
+    card: {
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 10,
+    },
+    cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    cardTitle: { fontSize: 16, fontWeight: "700", color: c.text },
+    cardType: { fontSize: 11, color: c.accent, fontWeight: "600" },
+    cardMeta: { fontSize: 12, color: c.textSecondary, marginTop: 4 },
+    cardActions: { flexDirection: "row", gap: 8, marginTop: 10 },
+    logButton: {
+      flex: 1,
+      backgroundColor: c.accent,
+      borderRadius: 8,
+      paddingVertical: 10,
+      alignItems: "center",
+    },
+    logButtonText: { color: c.textOnAccent, fontSize: 13, fontWeight: "600" },
+    deleteButton: {
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: c.status.error.border,
+    },
+    deleteButtonText: { color: c.status.error.fg, fontSize: 13, fontWeight: "600" },
+    logForm: {
+      marginTop: 12,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+    },
+    pickerText: { fontSize: 15, color: c.text, textAlign: "center" },
+    pickerBox: {
+      backgroundColor: c.bgSecondary,
+      borderRadius: 10,
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      paddingBottom: 8,
+    },
+    doneButton: {
+      backgroundColor: c.accent,
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 24,
+      marginTop: 4,
+    },
+    doneButtonText: { color: c.textOnAccent, fontWeight: "700" },
+    interactionCard: {
+      backgroundColor: c.status.warning.surfaceSubtle,
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: c.status.warning.border,
+    },
+    interactionText: { fontSize: 12, color: c.status.warning.strong, lineHeight: 17 },
+    suggestionBox: {
+      backgroundColor: c.surface,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: c.border,
+      marginTop: 4,
+      overflow: "hidden",
+    },
+    suggestionRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: c.bgTertiary,
+    },
+    suggestionText: { fontSize: 14, color: c.text, fontWeight: "600" },
+    suggestionMeta: { fontSize: 11, color: c.accent },
+    referenceCard: {
+      backgroundColor: c.status.info.surface,
+      borderRadius: 10,
+      padding: 12,
+      marginTop: 8,
+    },
+    referenceTitle: { fontSize: 13, fontWeight: "700", color: c.text, marginBottom: 4 },
+    referenceText: { fontSize: 12, color: c.textBody, lineHeight: 17, marginBottom: 6 },
+    referenceMeta: { fontSize: 11, color: c.status.info.strong, marginTop: 2 },
+    referenceSource: { fontSize: 10, color: c.textSecondary, marginTop: 6, fontStyle: "italic" },
+    referenceDisclaimer: {
+      fontSize: 10,
+      color: c.status.warning.strong,
+      marginTop: 6,
+      fontStyle: "italic",
+    },
+    evidenceButton: {
+      backgroundColor: c.inverseSurface,
+      borderRadius: 8,
+      paddingVertical: 10,
+      alignItems: "center",
+      marginTop: 10,
+    },
+    evidenceButtonText: { color: c.onInverseSurface, fontSize: 12, fontWeight: "600" },
+    evidenceCard: {
+      backgroundColor: c.surface,
+      borderRadius: 8,
+      padding: 10,
+      marginTop: 8,
+    },
+    evidenceTitle: { fontSize: 12, fontWeight: "700", color: c.text },
+    evidenceMeta: { fontSize: 11, color: c.textSecondary, marginTop: 2 },
+    addButton: {
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: 16,
+    },
+    addButtonText: { color: c.accent, fontWeight: "700" },
+    formBox: { backgroundColor: c.surface, borderRadius: 12, padding: 16, marginBottom: 16 },
+    label: { fontSize: 13, fontWeight: "600", color: c.textBody, marginBottom: 6, marginTop: 10 },
+    input: {
+      backgroundColor: c.bgSecondary,
+      borderRadius: 8,
+      padding: 10,
+      fontSize: 15,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    notesInput: { minHeight: 70, textAlignVertical: "top" },
+    row: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+    flex1: { flex: 1 },
+    marginLeft: { marginLeft: 8 },
+    chipGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+    chip: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      backgroundColor: c.bgSecondary,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    chipSelected: { backgroundColor: c.accent, borderColor: c.accent },
+    chipText: { fontSize: 12, color: c.textBody },
+    chipTextSelected: { color: c.textOnAccent },
+    timeChip: {
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 16,
+      backgroundColor: c.status.info.surface,
+    },
+    timeChipText: { fontSize: 12, color: c.status.info.strong, fontWeight: "600" },
+    smallAddButton: {
+      backgroundColor: c.inverseSurface,
+      borderRadius: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    smallAddButtonText: { color: c.onInverseSurface, fontSize: 13, fontWeight: "600" },
+    formActions: { flexDirection: "row", gap: 8, marginTop: 16 },
+    cancelButton: {
+      flex: 1,
+      paddingVertical: 12,
+      alignItems: "center",
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    cancelButtonText: { color: c.textBody, fontWeight: "600" },
+    saveButton: {
+      flex: 1,
+      backgroundColor: c.accent,
+      paddingVertical: 12,
+      alignItems: "center",
+      borderRadius: 10,
+    },
+    saveButtonText: { color: c.textOnAccent, fontWeight: "700" },
+    disabled: { opacity: 0.6 },
+    disclaimer: {
+      fontSize: 11,
+      color: c.textMuted,
+      textAlign: "center",
+      marginTop: 8,
+      marginBottom: 40,
+      fontStyle: "italic",
+    },
+  });

@@ -7,6 +7,8 @@ import {
   Pressable,
   StyleSheet,
 } from "react-native";
+import { useThemedStyles, usePalette } from "../hooks/useThemedStyles";
+import type { Palette } from "../theme";
 
 interface GeminiTimeoutModalProps {
   visible: boolean;
@@ -23,6 +25,8 @@ export function GeminiTimeoutModal({
   onDismiss,
   elapsedSeconds,
 }: GeminiTimeoutModalProps) {
+  const palette = usePalette();
+  const styles = useThemedStyles(createStyles);
   const isTimeout = elapsedSeconds > 60;
   const isSlowConnection = elapsedSeconds > 30 && !isTimeout;
 
@@ -62,7 +66,7 @@ export function GeminiTimeoutModal({
             <>
               <ActivityIndicator
                 size="large"
-                color="#3b82f6"
+                color={palette.accentBright}
                 style={styles.spinner}
               />
               <Text style={styles.title}>Gemini está lento</Text>
@@ -80,70 +84,71 @@ export function GeminiTimeoutModal({
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  container: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 24,
-    width: "80%",
-    maxWidth: 340,
-    alignItems: "center",
-  },
-  spinner: {
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1f2937",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  message: {
-    fontSize: 14,
-    color: "#4b5563",
-    marginBottom: 8,
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  subtext: {
-    fontSize: 12,
-    color: "#9ca3af",
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  buttonRow: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  dismissButton: {
-    backgroundColor: "#e5e7eb",
-  },
-  dismissButtonText: {
-    color: "#374151",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  retryButton: {
-    backgroundColor: "#3b82f6",
-  },
-  retryButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: c.overlay,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    container: {
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      padding: 24,
+      width: "80%",
+      maxWidth: 340,
+      alignItems: "center",
+    },
+    spinner: {
+      marginBottom: 16,
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: "600",
+      color: c.text,
+      marginBottom: 8,
+      textAlign: "center",
+    },
+    message: {
+      fontSize: 14,
+      color: c.textBody,
+      marginBottom: 8,
+      textAlign: "center",
+      lineHeight: 20,
+    },
+    subtext: {
+      fontSize: 12,
+      color: c.textMuted,
+      textAlign: "center",
+      marginBottom: 20,
+    },
+    buttonRow: {
+      flexDirection: "row",
+      gap: 12,
+      width: "100%",
+    },
+    button: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 8,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    dismissButton: {
+      backgroundColor: c.border,
+    },
+    dismissButtonText: {
+      color: c.textBody,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+    retryButton: {
+      backgroundColor: c.accentBright,
+    },
+    retryButtonText: {
+      color: c.textOnAccent,
+      fontSize: 14,
+      fontWeight: "600",
+    },
+  });

@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   Pressable,
   ActivityIndicator,
@@ -10,11 +9,16 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
+import { ThemedTextInput } from "../components/ThemedTextInput";
 import { useAuth } from "../lib/auth";
+import { useThemedStyles, usePalette } from "../hooks/useThemedStyles";
+import type { Palette } from "../theme";
 
 type AuthMode = "login" | "signup";
 
 export default function LoginScreen() {
+  const styles = useThemedStyles(createStyles);
+  const palette = usePalette();
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -81,7 +85,7 @@ export default function LoginScreen() {
             : "Crea una nueva cuenta para empezar a rastrear tu glucosa."}
         </Text>
 
-        <TextInput
+        <ThemedTextInput
           style={styles.input}
           placeholder="Email"
           value={email}
@@ -91,7 +95,7 @@ export default function LoginScreen() {
           keyboardType="email-address"
           editable={!loading}
         />
-        <TextInput
+        <ThemedTextInput
           style={styles.input}
           placeholder="Contraseña"
           value={password}
@@ -103,7 +107,7 @@ export default function LoginScreen() {
         />
 
         {mode === "signup" && (
-          <TextInput
+          <ThemedTextInput
             style={styles.input}
             placeholder="Confirmar contraseña"
             value={confirmPassword}
@@ -124,7 +128,7 @@ export default function LoginScreen() {
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={palette.textOnAccent} />
           ) : (
             <Text style={styles.buttonText}>
               {mode === "login" ? "Ingresar" : "Crear cuenta"}
@@ -152,67 +156,68 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f9fafb",
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#111827",
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#6b7280",
-    textAlign: "center",
-    marginBottom: 32,
-  },
-  input: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    marginBottom: 12,
-  },
-  error: {
-    color: "#dc2626",
-    fontSize: 13,
-    textAlign: "center",
-    marginBottom: 12,
-  },
-  success: {
-    color: "#16a34a",
-    fontSize: 13,
-    textAlign: "center",
-    marginBottom: 12,
-  },
-  button: {
-    backgroundColor: "#2563eb",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  buttonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  disabled: { opacity: 0.6 },
-  toggleMode: {
-    marginTop: 20,
-    padding: 12,
-  },
-  toggleText: {
-    fontSize: 13,
-    color: "#2563eb",
-    textAlign: "center",
-    fontWeight: "500",
-  },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: c.bgSecondary,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: "center",
+      padding: 24,
+    },
+    title: {
+      fontSize: 28,
+      fontWeight: "800",
+      color: c.text,
+      textAlign: "center",
+      marginBottom: 4,
+    },
+    subtitle: {
+      fontSize: 14,
+      color: c.textSecondary,
+      textAlign: "center",
+      marginBottom: 32,
+    },
+    input: {
+      backgroundColor: c.surface,
+      borderRadius: 10,
+      padding: 14,
+      fontSize: 15,
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: 12,
+    },
+    error: {
+      color: c.status.error.fg,
+      fontSize: 13,
+      textAlign: "center",
+      marginBottom: 12,
+    },
+    success: {
+      color: c.status.success.fg,
+      fontSize: 13,
+      textAlign: "center",
+      marginBottom: 12,
+    },
+    button: {
+      backgroundColor: c.accent,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      marginTop: 4,
+    },
+    buttonText: { color: c.textOnAccent, fontSize: 15, fontWeight: "700" },
+    disabled: { opacity: 0.6 },
+    toggleMode: {
+      marginTop: 20,
+      padding: 12,
+    },
+    toggleText: {
+      fontSize: 13,
+      color: c.accent,
+      textAlign: "center",
+      fontWeight: "500",
+    },
+  });

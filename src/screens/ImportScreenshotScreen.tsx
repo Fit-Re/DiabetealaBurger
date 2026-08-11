@@ -6,10 +6,10 @@ import {
   Pressable,
   Image,
   ScrollView,
-  TextInput,
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { ThemedTextInput } from "../components/ThemedTextInput";
 import * as ImagePicker from "expo-image-picker";
 import { insertReading } from "../db/database";
 import { parseLibreLinkScreenshot } from "../lib/geminiVision";
@@ -17,6 +17,8 @@ import { runBackgroundTasks } from "../lib/autoEnrich";
 import { parseLibreLinkScreenshotOCR } from "../lib/ocrSpace";
 import type { TrendArrow } from "../types";
 import { TREND_LABELS } from "../types";
+import { useThemedStyles, usePalette } from "../hooks/useThemedStyles";
+import type { Palette } from "../theme";
 
 const TREND_OPTIONS: { key: TrendArrow; label: string }[] = [
   { key: "rising_fast", label: TREND_LABELS.rising_fast },
@@ -58,6 +60,8 @@ export default function ImportScreenshotScreen({
 }: {
   onSaved?: () => void;
 }) {
+  const styles = useThemedStyles(createStyles);
+  const palette = usePalette();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -199,7 +203,7 @@ export default function ImportScreenshotScreen({
             disabled={analyzingOcr || analyzing}
           >
             {analyzingOcr ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={palette.textOnAccent} />
             ) : (
               <Text style={styles.analyzeButtonText}>Autocompletar con OCR (gratis)</Text>
             )}
@@ -210,7 +214,7 @@ export default function ImportScreenshotScreen({
             disabled={analyzing || analyzingOcr}
           >
             {analyzing ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={palette.textOnAccent} />
             ) : (
               <Text style={styles.analyzeButtonText}>
                 Autocompletar con IA (opcional, usa crédito)
@@ -228,7 +232,7 @@ export default function ImportScreenshotScreen({
         )}
 
         <Text style={styles.label}>Valor de glucosa (mg/dL)</Text>
-        <TextInput
+        <ThemedTextInput
           style={styles.input}
           keyboardType="decimal-pad"
           placeholder="Ej. 110"
@@ -257,7 +261,7 @@ export default function ImportScreenshotScreen({
         </View>
 
         <Text style={styles.label}>Hora (HH:MM, 24h)</Text>
-        <TextInput
+        <ThemedTextInput
           style={styles.input}
           placeholder="Ej. 08:30"
           value={timeInput}
@@ -265,7 +269,7 @@ export default function ImportScreenshotScreen({
         />
 
         <Text style={styles.label}>Notas (opcional)</Text>
-        <TextInput
+        <ThemedTextInput
           style={[styles.input, styles.notesInput]}
           placeholder="Ej. antes de comer..."
           value={notes}
@@ -287,73 +291,74 @@ export default function ImportScreenshotScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb", padding: 16 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: "#111827" },
-  hint: { fontSize: 12, color: "#6b7280", marginBottom: 16, lineHeight: 17 },
-  pickButton: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  pickButtonText: { color: "#2563eb", fontWeight: "600", fontSize: 15 },
-  preview: { width: "100%", height: 260, marginTop: 16, borderRadius: 12, backgroundColor: "#000" },
-  analyzeButton: {
-    backgroundColor: "#111827",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  analyzeButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  ocrButton: {
-    backgroundColor: "#059669",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  disabled: { opacity: 0.6 },
-  formBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginTop: 16 },
-  confidenceText: {
-    fontSize: 12,
-    color: "#4338ca",
-    backgroundColor: "#eef2ff",
-    padding: 8,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  label: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4, marginTop: 8 },
-  input: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  notesInput: { minHeight: 60, textAlignVertical: "top" },
-  trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  trendChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: "#f9fafb",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  trendChipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  trendChipText: { fontSize: 12, color: "#374151" },
-  trendChipTextSelected: { color: "#fff" },
-  saveButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 16,
-  },
-  saveButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bgSecondary, padding: 16 },
+    title: { fontSize: 20, fontWeight: "700", marginBottom: 8, color: c.text },
+    hint: { fontSize: 12, color: c.textSecondary, marginBottom: 16, lineHeight: 17 },
+    pickButton: {
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      padding: 16,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    pickButtonText: { color: c.accent, fontWeight: "600", fontSize: 15 },
+    preview: { width: "100%", height: 260, marginTop: 16, borderRadius: 12, backgroundColor: c.photoBackdrop },
+    analyzeButton: {
+      backgroundColor: c.inverseSurface,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      marginTop: 12,
+    },
+    analyzeButtonText: { color: c.onInverseSurface, fontWeight: "700", fontSize: 14 },
+    ocrButton: {
+      backgroundColor: c.status.success.strong,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      marginTop: 12,
+    },
+    disabled: { opacity: 0.6 },
+    formBox: { backgroundColor: c.surface, borderRadius: 12, padding: 16, marginTop: 16 },
+    confidenceText: {
+      fontSize: 12,
+      color: c.status.info.strong,
+      backgroundColor: c.status.info.surface,
+      padding: 8,
+      borderRadius: 8,
+      marginBottom: 8,
+    },
+    label: { fontSize: 13, fontWeight: "600", color: c.textBody, marginBottom: 4, marginTop: 8 },
+    input: {
+      backgroundColor: c.bgSecondary,
+      borderRadius: 8,
+      padding: 10,
+      fontSize: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    notesInput: { minHeight: 60, textAlignVertical: "top" },
+    trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    trendChip: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      backgroundColor: c.bgSecondary,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    trendChipSelected: { backgroundColor: c.accent, borderColor: c.accent },
+    trendChipText: { fontSize: 12, color: c.textBody },
+    trendChipTextSelected: { color: c.textOnAccent },
+    saveButton: {
+      backgroundColor: c.accent,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      marginTop: 16,
+    },
+    saveButtonText: { color: c.textOnAccent, fontSize: 15, fontWeight: "700" },
+  });
