@@ -25,18 +25,19 @@ import {
 } from "../db/database";
 import { addDays, isSameDay, startOfDay } from "../lib/dateTimeUtils";
 import { detectPatterns } from "../lib/patterns";
-import { searchViaGraph, initializeKnowledgeGraph, computePatternComplexity, searchViaGraphPersonalized, recordPatternFeedback, getPatientPaperFeedback } from "../lib/knowledgeBase";
-import { synthesizeEvidence } from "../lib/geminiVision";
-import type { EvidenceSynthesis } from "../lib/geminiVision";
 import type {
   GlucoseReading,
   LifestyleMetric,
   PatientProfile,
   PatternFinding,
 } from "../types";
-import type { ActivationResult } from "../lib/knowledgeGraph";
 import { TARGET_RANGE, TREND_LABELS } from "../types";
-import { useAuth } from "../lib/auth";
+import { usePatternEvidence } from "../hooks/usePatternEvidence";
+import { EvidenceFeedbackButtons } from "../components/EvidenceFeedbackButtons";
+import {
+  EvidenceSynthesisBox,
+  SynthesizeButton,
+} from "../components/EvidenceSynthesisBox";
 import { useThemedStyles, usePalette } from "../hooks/useThemedStyles";
 import { spacing, borderRadius, type Palette } from "../theme";
 
@@ -398,91 +399,25 @@ const trendBadges = (
   stable: { label: "= estable", color: c.textBody, bg: c.bgTertiary },
 });
 
-const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], string> = {
-  strong: "Sólida",
-  moderate: "Moderada",
-  limited: "Limitada",
-};
-
 function PatternCard({ pattern }: { pattern: PatternFinding }) {
   const styles = useThemedStyles(createStyles);
   const badges = trendBadges(usePalette());
-  const { session } = useAuth();
   const [expanded, setExpanded] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [evidence, setEvidence] = useState<ActivationResult[] | null>(null);
-  const [synthesizing, setSynthesizing] = useState(false);
-  const [synthesis, setSynthesis] = useState<EvidenceSynthesis | null>(null);
-  const [feedbackStates, setFeedbackStates] = useState<Record<string, boolean | null>>({});
+  const {
+    searching,
+    evidence,
+    synthesizing,
+    synthesis,
+    feedbackStates,
+    loadEvidence,
+    synthesize,
+    sendFeedback,
+  } = usePatternEvidence(pattern);
 
-  const onToggle = async () => {
+  const onToggle = () => {
     const next = !expanded;
     setExpanded(next);
-    if (next && evidence === null) {
-      setSearching(true);
-      try {
-        // Initialize knowledge graph if not already done
-        await initializeKnowledgeGraph();
-
-        // Use personalized graph-based search with pattern memory (Phase 3 Week 3)
-        const patientId = session?.user?.id ?? "unknown";
-        const found = await searchViaGraphPersonalized(
-          pattern.suggestedQuery,
-          patientId,
-          1,
-          pattern.severity === "attention" ? 1.0 : pattern.severity === "watch" ? 0.6 : 0.3,
-          4, // topK: 4 papers with activation paths (filtered by preferences)
-          pattern.id // Pass patternId for feedback-based ranking
-        );
-        setEvidence(found);
-
-        // Load existing feedback for these papers
-        const feedback: Record<string, boolean | null> = {};
-        for (const result of found) {
-          const existing = await getPatientPaperFeedback(patientId, result.paperId);
-          if (existing) {
-            feedback[result.paperId] = existing.wasHelpful;
-          }
-        }
-        setFeedbackStates(feedback);
-      } catch (e: any) {
-        Alert.alert("Error", e?.message ?? "No se pudo buscar evidencia relacionada.");
-      } finally {
-        setSearching(false);
-      }
-    }
-  };
-
-  const onFeedback = async (paperId: string, wasHelpful: boolean) => {
-    const patientId = session?.user?.id ?? "unknown";
-    try {
-      await recordPatternFeedback(patientId, pattern.id, paperId, wasHelpful);
-      setFeedbackStates({
-        ...feedbackStates,
-        [paperId]: wasHelpful,
-      });
-      Alert.alert(
-        "Gracias",
-        wasHelpful
-          ? "Nos alegra que te haya sido útil 😊"
-          : "Entendido, usaremos esto para mejorar"
-      );
-    } catch (e: any) {
-      Alert.alert("Error", "No se pudo registrar tu opinión.");
-    }
-  };
-
-  const onSynthesize = async () => {
-    if (!evidence || evidence.length === 0) return;
-    setSynthesizing(true);
-    try {
-      const result = await synthesizeEvidence(pattern.suggestedQuery, evidence);
-      setSynthesis(result);
-    } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudo generar el resumen clínico.");
-    } finally {
-      setSynthesizing(false);
-    }
+    if (next) loadEvidence();
   };
 
   return (
@@ -524,75 +459,18 @@ function PatternCard({ pattern }: { pattern: PatternFinding }) {
                 Ruta: {e.path.join(" → ")}
               </Text>
 
-              {/* Phase 3 Week 3: Feedback buttons for pattern memory */}
-              <View style={styles.feedbackRow}>
-                <Pressable
-                  style={[
-                    styles.feedbackButton,
-                    feedbackStates[e.paperId] === true && styles.feedbackButtonActive,
-                  ]}
-                  onPress={() => onFeedback(e.paperId, true)}
-                >
-                  <Text
-                    style={[
-                      styles.feedbackButtonText,
-                      feedbackStates[e.paperId] === true && styles.feedbackButtonTextActive,
-                    ]}
-                  >
-                    👍 Útil
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.feedbackButton,
-                    feedbackStates[e.paperId] === false && styles.feedbackButtonActive,
-                  ]}
-                  onPress={() => onFeedback(e.paperId, false)}
-                >
-                  <Text
-                    style={[
-                      styles.feedbackButtonText,
-                      feedbackStates[e.paperId] === false && styles.feedbackButtonTextActive,
-                    ]}
-                  >
-                    👎 No ayudó
-                  </Text>
-                </Pressable>
-              </View>
+              <EvidenceFeedbackButtons
+                value={feedbackStates[e.paperId]}
+                onPress={(wasHelpful) => sendFeedback(e.paperId, wasHelpful)}
+              />
             </View>
           ))}
 
           {evidence && evidence.length > 0 && !synthesis && (
-            <Pressable
-              style={[styles.synthesizeButton, synthesizing && styles.disabled]}
-              onPress={onSynthesize}
-              disabled={synthesizing}
-            >
-              <Text style={styles.synthesizeButtonText}>
-                {synthesizing ? "Revisando evidencia..." : "Generar resumen clínico"}
-              </Text>
-            </Pressable>
+            <SynthesizeButton synthesizing={synthesizing} onPress={synthesize} />
           )}
 
-          {synthesis && (
-            <View style={styles.synthesisBox}>
-              <Text style={styles.synthesisStrength}>
-                Solidez de la evidencia: {EVIDENCE_STRENGTH_LABELS[synthesis.evidenceStrength]}
-              </Text>
-              <Text style={styles.synthesisSectionTitle}>Etiología</Text>
-              <Text style={styles.synthesisText}>{synthesis.etiology}</Text>
-              <Text style={styles.synthesisSectionTitle}>Manejo (temas para tu médico)</Text>
-              <Text style={styles.synthesisText}>{synthesis.management}</Text>
-              <Text style={styles.synthesisSectionTitle}>Resultado probable</Text>
-              <Text style={styles.synthesisText}>{synthesis.likelyOutcome}</Text>
-              {synthesis.caveats && (
-                <>
-                  <Text style={styles.synthesisSectionTitle}>Advertencias</Text>
-                  <Text style={styles.synthesisCaveats}>{synthesis.caveats}</Text>
-                </>
-              )}
-            </View>
-          )}
+          {synthesis && <EvidenceSynthesisBox synthesis={synthesis} />}
         </View>
       )}
     </Pressable>
@@ -744,57 +622,4 @@ const createStyles = (c: Palette) =>
     },
     evidenceTitle: { fontSize: 12, fontWeight: "700", color: c.text },
     evidenceMeta: { fontSize: 11, color: c.textSecondary, marginTop: 2 },
-    synthesizeButton: {
-      backgroundColor: c.inverseSurface,
-      borderRadius: 10,
-      padding: 12,
-      alignItems: "center",
-      marginTop: spacing.sm,
-    },
-    synthesizeButtonText: { color: c.onInverseSurface, fontSize: 13, fontWeight: "700" },
-    disabled: { opacity: 0.6 },
-    synthesisBox: {
-      backgroundColor: c.status.info.surface,
-      borderRadius: 10,
-      padding: 12,
-      marginTop: 10,
-    },
-    synthesisStrength: { fontSize: 11, fontWeight: "700", color: c.status.info.strong, marginBottom: 6 },
-    synthesisSectionTitle: { fontSize: 11, fontWeight: "700", color: c.text, marginTop: 6 },
-    synthesisText: { fontSize: 12, color: c.textBody, lineHeight: 17, marginTop: 2 },
-    synthesisCaveats: {
-      fontSize: 11,
-      color: c.status.warning.strong,
-      lineHeight: 16,
-      marginTop: 2,
-      fontStyle: "italic",
-    },
-    // Feedback buttons for pattern memory (Phase 3 Week 3)
-    feedbackRow: {
-      flexDirection: "row",
-      gap: spacing.sm,
-      marginTop: 10,
-    },
-    feedbackButton: {
-      flex: 1,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: 10,
-      borderRadius: 6,
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.bgSecondary,
-      alignItems: "center",
-    },
-    feedbackButtonActive: {
-      backgroundColor: c.accentLight,
-      borderColor: c.accent,
-    },
-    feedbackButtonText: {
-      fontSize: 12,
-      fontWeight: "600",
-      color: c.textSecondary,
-    },
-    feedbackButtonTextActive: {
-      color: c.accent,
-    },
   });

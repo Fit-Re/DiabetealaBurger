@@ -263,6 +263,43 @@ export interface NewLifestyleMetric {
   raw: string | null;
 }
 
+// Bitácora de cumplimiento diario. `status` (qué hizo el paciente con el ajuste
+// acordado) y `mood` (cómo se sintió) son ejes independientes: se puede cumplir
+// y sentirse mal, o no cumplir y sentirse bien.
+export type AdherenceStatus = "complied" | "not_complied" | "modified";
+
+export type AdherenceMood = "good" | "neutral" | "bad";
+
+export const ADHERENCE_STATUS_LABELS: Record<AdherenceStatus, string> = {
+  complied: "Cumplí",
+  not_complied: "No cumplí",
+  modified: "Lo cambié",
+};
+
+export const ADHERENCE_MOOD_LABELS: Record<AdherenceMood, string> = {
+  good: "Bien",
+  neutral: "Normal",
+  bad: "Mal",
+};
+
+export interface AdherenceLog {
+  id: number;
+  dateKey: string;
+  dateMs: number;
+  status: AdherenceStatus;
+  mood: AdherenceMood | null;
+  notes: string | null;
+  createdAtMs: number;
+}
+
+export interface NewAdherenceLog {
+  dateKey: string;
+  dateMs: number;
+  status: AdherenceStatus;
+  mood: AdherenceMood | null;
+  notes: string | null;
+}
+
 export type PatternSeverity = "info" | "watch" | "attention";
 
 export interface PatternFinding {
