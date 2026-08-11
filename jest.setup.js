@@ -1,4 +1,5 @@
-import '@testing-library/jest-native/extend-expect';
+// Los matchers de @testing-library/jest-native vienen incorporados en
+// @testing-library/react-native v12.4+, por eso ya no se importan aparte.
 
 // Mock react-native modules that don't work in jest environment
 jest.mock('@react-native-async-storage/async-storage', () => ({
