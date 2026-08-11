@@ -43,15 +43,21 @@ import { spacing, borderRadius, type Palette } from "../theme";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PATTERN_WINDOW_MS = 14 * DAY_MS;
 
+function capitalizeFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function dayLabel(day: Date): string {
   const today = startOfDay(new Date());
   if (isSameDay(day, today)) return "Hoy";
   if (isSameDay(day, addDays(today, -1))) return "Ayer";
-  return day.toLocaleDateString("es-MX", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+  return capitalizeFirst(
+    day.toLocaleDateString("es-MX", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    })
+  );
 }
 
 export default function HomeScreen() {
@@ -277,7 +283,7 @@ function timeAgo(ms: number): string {
   return `hace ${diffHr} h`;
 }
 
-function CurrentReadingCard({
+export function CurrentReadingCard({
   reading,
   isToday,
   targetLow,
@@ -302,7 +308,7 @@ function CurrentReadingCard({
   }[status];
 
   return (
-    <View style={[styles.readingCard, statusStyles.card]}>
+    <View style={[styles.readingCard, statusStyles.card]} testID={`reading-card-${status}`}>
       <View style={[styles.readingCardBar, statusStyles.bar]} />
       <View style={styles.readingCardContent}>
         <Text style={styles.readingCardLabel}>
@@ -328,7 +334,7 @@ function CurrentReadingCard({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+export function StatCard({ label, value }: { label: string; value: string }) {
   const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.statCard}>
@@ -345,16 +351,18 @@ function fmtDuration(minutes: number | null): string {
   return `${h}h ${m}m`;
 }
 
-function LifestyleCard({ metric }: { metric: LifestyleMetric }) {
+export function LifestyleCard({ metric }: { metric: LifestyleMetric }) {
   const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.lifestyleCard}>
       <Text style={styles.lifestyleDate}>
-        {new Date(metric.dateMs).toLocaleDateString("es-MX", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-        })}
+        {capitalizeFirst(
+          new Date(metric.dateMs).toLocaleDateString("es-MX", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })
+        )}
       </Text>
       <View style={styles.statsRow}>
         <StatCard label="Sueño" value={fmt(metric.sleepScore)} />
@@ -681,7 +689,6 @@ const createStyles = (c: Palette) =>
       fontWeight: "600",
       color: c.textSecondary,
       marginBottom: spacing.sm,
-      textTransform: "capitalize",
     },
     statCard: {
       flex: 1,
