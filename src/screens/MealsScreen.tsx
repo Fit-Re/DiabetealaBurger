@@ -2,7 +2,6 @@ import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   Pressable,
   Image,
@@ -11,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
 } from "react-native";
+import { ThemedTextInput } from "../components/ThemedTextInput";
 import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -27,6 +27,8 @@ import { parseMealPhoto } from "../lib/geminiVision";
 import type { ParsedMeal } from "../lib/geminiVision";
 import type { Meal, MedicationLog } from "../types";
 import { mergeDatePart, mergeTimePart, formatDate, formatTime } from "../lib/dateTimeUtils";
+import { useThemedStyles, usePalette } from "../hooks/useThemedStyles";
+import type { Palette } from "../theme";
 
 const BOLUS_LOOKBACK_MS = 6 * 60 * 60 * 1000;
 
@@ -36,6 +38,8 @@ function startOfTodayMs(): number {
 }
 
 export default function MealsScreen() {
+  const styles = useThemedStyles(createStyles);
+  const palette = usePalette();
   const [meals, setMeals] = useState<Meal[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -325,7 +329,7 @@ export default function MealsScreen() {
                 disabled={analyzing}
               >
                 {analyzing ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={palette.textOnAccent} />
                 ) : (
                   <Text style={styles.analyzeButtonText}>
                     Analizar con IA (opcional, usa crédito)
@@ -413,7 +417,7 @@ export default function MealsScreen() {
           )}
 
           <Text style={styles.label}>Descripción (opcional)</Text>
-          <TextInput
+          <ThemedTextInput
             style={[styles.input, styles.notesInput]}
             placeholder="Ej. 2 tacos de pollo con arroz y una manzana"
             value={context}
@@ -441,7 +445,7 @@ export default function MealsScreen() {
                   {parsed.clarifyingQuestions.map((q) => (
                     <View key={q}>
                       <Text style={styles.label}>{q}</Text>
-                      <TextInput
+                      <ThemedTextInput
                         style={styles.input}
                         value={answers[q] ?? ""}
                         onChangeText={(v) => setAnswers({ ...answers, [q]: v })}
@@ -467,7 +471,7 @@ export default function MealsScreen() {
           )}
 
           <Text style={styles.label}>Calorías totales</Text>
-          <TextInput
+          <ThemedTextInput
             style={styles.input}
             keyboardType="decimal-pad"
             placeholder="Ej. 450"
@@ -475,7 +479,7 @@ export default function MealsScreen() {
             onChangeText={setCalories}
           />
           <Text style={styles.label}>Carbohidratos (g)</Text>
-          <TextInput
+          <ThemedTextInput
             style={styles.input}
             keyboardType="decimal-pad"
             placeholder="Ej. 55"
@@ -483,7 +487,7 @@ export default function MealsScreen() {
             onChangeText={setCarbsG}
           />
           <Text style={styles.label}>Azúcar (g)</Text>
-          <TextInput
+          <ThemedTextInput
             style={styles.input}
             keyboardType="decimal-pad"
             placeholder="Ej. 8"
@@ -491,7 +495,7 @@ export default function MealsScreen() {
             onChangeText={setSugarG}
           />
           <Text style={styles.label}>Proteína (g)</Text>
-          <TextInput
+          <ThemedTextInput
             style={styles.input}
             keyboardType="decimal-pad"
             placeholder="Ej. 20"
@@ -499,7 +503,7 @@ export default function MealsScreen() {
             onChangeText={setProteinG}
           />
           <Text style={styles.label}>Grasa (g)</Text>
-          <TextInput
+          <ThemedTextInput
             style={styles.input}
             keyboardType="decimal-pad"
             placeholder="Ej. 15"
@@ -540,6 +544,7 @@ export default function MealsScreen() {
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.statCard}>
       <Text style={styles.statValue}>{value}</Text>
@@ -548,131 +553,132 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb", padding: 16 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 12, color: "#111827" },
-  statsRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  statCard: { flex: 1, backgroundColor: "#fff", borderRadius: 12, padding: 12, alignItems: "center" },
-  statValue: { fontSize: 18, fontWeight: "700", color: "#111827" },
-  statLabel: { fontSize: 11, color: "#6b7280", marginTop: 2 },
-  mealCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 8,
-    gap: 10,
-  },
-  mealThumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: "#e5e7eb" },
-  flex1: { flex: 1 },
-  mealTime: { fontSize: 13, fontWeight: "700", color: "#111827" },
-  mealMacros: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-  mealPortion: { fontSize: 11, color: "#9ca3af", marginTop: 2 },
-  hint: { fontSize: 11, color: "#9ca3af", textAlign: "center", marginBottom: 8 },
-  addButton: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    marginBottom: 16,
-  },
-  addButtonText: { color: "#2563eb", fontWeight: "700" },
-  formBox: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 16 },
-  formHint: { fontSize: 12, color: "#6b7280", marginBottom: 12, lineHeight: 17 },
-  row: { flexDirection: "row", gap: 8 },
-  pickButton: {
-    flex: 1,
-    backgroundColor: "#f9fafb",
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  pickButtonText: { color: "#2563eb", fontWeight: "600", fontSize: 13 },
-  preview: { width: "100%", height: 220, marginTop: 12, borderRadius: 12, backgroundColor: "#000" },
-  label: { fontSize: 13, fontWeight: "600", color: "#374151", marginBottom: 4, marginTop: 10 },
-  input: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  notesInput: { minHeight: 60, textAlignVertical: "top" },
-  pickerText: { fontSize: 15, color: "#111827", textAlign: "center" },
-  marginLeft: { marginLeft: 8 },
-  pickerBox: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    alignItems: "center",
-    paddingBottom: 8,
-  },
-  doneButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    marginTop: 4,
-  },
-  doneButtonText: { color: "#fff", fontWeight: "700" },
-  bolusGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
-  bolusChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  bolusChipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  bolusChipText: { fontSize: 13, color: "#374151" },
-  bolusChipTextSelected: { color: "#fff" },
-  analyzeButton: {
-    backgroundColor: "#111827",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  analyzeButtonText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  disabled: { opacity: 0.6 },
-  resultBox: { marginTop: 16, borderTopWidth: 1, borderTopColor: "#e5e7eb", paddingTop: 12 },
-  resultTitle: { fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 8 },
-  itemLine: { fontSize: 12, color: "#374151", marginBottom: 4 },
-  clarifyBox: {
-    backgroundColor: "#fffbeb",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  clarifyTitle: { fontSize: 12, fontWeight: "700", color: "#92400e", marginBottom: 4 },
-  note: { fontSize: 12, color: "#6b7280", marginTop: 8, fontStyle: "italic" },
-  formActions: { flexDirection: "row", gap: 8, marginTop: 16 },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  cancelButtonText: { color: "#374151", fontWeight: "600" },
-  saveButton: { flex: 1, backgroundColor: "#2563eb", paddingVertical: 12, alignItems: "center", borderRadius: 10 },
-  saveButtonText: { color: "#fff", fontWeight: "700" },
-  disclaimer: {
-    fontSize: 11,
-    color: "#9ca3af",
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 40,
-    fontStyle: "italic",
-  },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bgSecondary, padding: 16 },
+    title: { fontSize: 20, fontWeight: "700", marginBottom: 12, color: c.text },
+    statsRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+    statCard: { flex: 1, backgroundColor: c.surface, borderRadius: 12, padding: 12, alignItems: "center" },
+    statValue: { fontSize: 18, fontWeight: "700", color: c.text },
+    statLabel: { fontSize: 11, color: c.textSecondary, marginTop: 2 },
+    mealCard: {
+      flexDirection: "row",
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      padding: 10,
+      marginBottom: 8,
+      gap: 10,
+    },
+    mealThumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: c.border },
+    flex1: { flex: 1 },
+    mealTime: { fontSize: 13, fontWeight: "700", color: c.text },
+    mealMacros: { fontSize: 12, color: c.textSecondary, marginTop: 2 },
+    mealPortion: { fontSize: 11, color: c.textMuted, marginTop: 2 },
+    hint: { fontSize: 11, color: c.textMuted, textAlign: "center", marginBottom: 8 },
+    addButton: {
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: 16,
+    },
+    addButtonText: { color: c.accent, fontWeight: "700" },
+    formBox: { backgroundColor: c.surface, borderRadius: 12, padding: 16, marginBottom: 16 },
+    formHint: { fontSize: 12, color: c.textSecondary, marginBottom: 12, lineHeight: 17 },
+    row: { flexDirection: "row", gap: 8 },
+    pickButton: {
+      flex: 1,
+      backgroundColor: c.bgSecondary,
+      borderRadius: 10,
+      padding: 12,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    pickButtonText: { color: c.accent, fontWeight: "600", fontSize: 13 },
+    preview: { width: "100%", height: 220, marginTop: 12, borderRadius: 12, backgroundColor: c.photoBackdrop },
+    label: { fontSize: 13, fontWeight: "600", color: c.textBody, marginBottom: 4, marginTop: 10 },
+    input: {
+      backgroundColor: c.bgSecondary,
+      borderRadius: 8,
+      padding: 10,
+      fontSize: 15,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    notesInput: { minHeight: 60, textAlignVertical: "top" },
+    pickerText: { fontSize: 15, color: c.text, textAlign: "center" },
+    marginLeft: { marginLeft: 8 },
+    pickerBox: {
+      backgroundColor: c.surface,
+      borderRadius: 10,
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      paddingBottom: 8,
+    },
+    doneButton: {
+      backgroundColor: c.accent,
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 24,
+      marginTop: 4,
+    },
+    doneButtonText: { color: c.textOnAccent, fontWeight: "700" },
+    bolusGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+    bolusChip: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    bolusChipSelected: { backgroundColor: c.accent, borderColor: c.accent },
+    bolusChipText: { fontSize: 13, color: c.textBody },
+    bolusChipTextSelected: { color: c.textOnAccent },
+    analyzeButton: {
+      backgroundColor: c.inverseSurface,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      marginTop: 12,
+    },
+    analyzeButtonText: { color: c.onInverseSurface, fontWeight: "700", fontSize: 14 },
+    disabled: { opacity: 0.6 },
+    resultBox: { marginTop: 16, borderTopWidth: 1, borderTopColor: c.border, paddingTop: 12 },
+    resultTitle: { fontSize: 13, fontWeight: "700", color: c.text, marginBottom: 8 },
+    itemLine: { fontSize: 12, color: c.textBody, marginBottom: 4 },
+    clarifyBox: {
+      backgroundColor: c.status.warning.surfaceSubtle,
+      borderRadius: 10,
+      padding: 12,
+      marginTop: 8,
+      marginBottom: 4,
+    },
+    clarifyTitle: { fontSize: 12, fontWeight: "700", color: c.status.warning.strong, marginBottom: 4 },
+    note: { fontSize: 12, color: c.textSecondary, marginTop: 8, fontStyle: "italic" },
+    formActions: { flexDirection: "row", gap: 8, marginTop: 16 },
+    cancelButton: {
+      flex: 1,
+      paddingVertical: 12,
+      alignItems: "center",
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    cancelButtonText: { color: c.textBody, fontWeight: "600" },
+    saveButton: { flex: 1, backgroundColor: c.accent, paddingVertical: 12, alignItems: "center", borderRadius: 10 },
+    saveButtonText: { color: c.textOnAccent, fontWeight: "700" },
+    disclaimer: {
+      fontSize: 11,
+      color: c.textMuted,
+      textAlign: "center",
+      marginTop: 8,
+      marginBottom: 40,
+      fontStyle: "italic",
+    },
+  });

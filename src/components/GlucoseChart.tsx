@@ -2,6 +2,7 @@ import React, { Fragment } from "react";
 import { View } from "react-native";
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from "react-native-svg";
 import type { GlucoseReading } from "../types";
+import { usePalette } from "../hooks/useThemedStyles";
 
 interface GlucoseChartProps {
   readings: GlucoseReading[]; // orden cronológico ascendente
@@ -28,6 +29,9 @@ export default function GlucoseChart({
   width,
   height = 220,
 }: GlucoseChartProps) {
+  // Antes del return temprano: los hooks no pueden llamarse condicionalmente.
+  const c = usePalette();
+
   if (readings.length < 2) return null;
 
   const values = readings.map((r) => r.value);
@@ -96,7 +100,8 @@ export default function GlucoseChart({
   const bandBottom = yFor(low);
 
   const last = readings[readings.length - 1];
-  const lastColor = last.value < low ? "#dc2626" : last.value > high ? "#d97706" : "#16a34a";
+  const lastColor =
+    last.value < low ? c.status.error.fg : last.value > high ? c.status.warning.fg : c.status.success.fg;
 
   return (
     <View>
@@ -106,7 +111,7 @@ export default function GlucoseChart({
           y={bandTop}
           width={innerWidth}
           height={Math.max(bandBottom - bandTop, 0)}
-          fill="#dcfce7"
+          fill={c.status.success.surface}
         />
 
         {yTicks.map((v) => (
@@ -116,14 +121,14 @@ export default function GlucoseChart({
               x2={width - PADDING.right}
               y1={yFor(v)}
               y2={yFor(v)}
-              stroke="#e5e7eb"
+              stroke={c.border}
               strokeWidth={1}
             />
             <SvgText
               x={PADDING.left - 6}
               y={yFor(v) + 4}
               fontSize={10}
-              fill="#6b7280"
+              fill={c.textSecondary}
               textAnchor="end"
             >
               {v}
@@ -136,7 +141,7 @@ export default function GlucoseChart({
           x2={width - PADDING.right}
           y1={yFor(low)}
           y2={yFor(low)}
-          stroke="#dc2626"
+          stroke={c.status.error.fg}
           strokeWidth={1.5}
           strokeDasharray="4,4"
         />
@@ -145,13 +150,13 @@ export default function GlucoseChart({
           x2={width - PADDING.right}
           y1={yFor(high)}
           y2={yFor(high)}
-          stroke="#d97706"
+          stroke={c.status.warning.fg}
           strokeWidth={1.5}
           strokeDasharray="4,4"
         />
 
-        <Path d={areaPath} fill="rgba(37, 99, 235, 0.12)" />
-        <Path d={linePath} fill="none" stroke="#2563eb" strokeWidth={2.5} />
+        <Path d={areaPath} fill={c.accentTranslucent} />
+        <Path d={linePath} fill="none" stroke={c.accent} strokeWidth={2.5} />
 
         {points.map((p, i) => (
           <Circle
@@ -159,7 +164,7 @@ export default function GlucoseChart({
             cx={p.x}
             cy={p.y}
             r={i === points.length - 1 ? 5 : 2.5}
-            fill={i === points.length - 1 ? lastColor : "#2563eb"}
+            fill={i === points.length - 1 ? lastColor : c.accent}
           />
         ))}
 
@@ -169,7 +174,7 @@ export default function GlucoseChart({
             x={Math.min(Math.max(points[i].x, PADDING.left + 16), width - PADDING.right - 16)}
             y={height - 8}
             fontSize={10}
-            fill="#6b7280"
+            fill={c.textSecondary}
             textAnchor="middle"
           >
             {new Date(readings[i].timestampMs).toLocaleTimeString("es-MX", {

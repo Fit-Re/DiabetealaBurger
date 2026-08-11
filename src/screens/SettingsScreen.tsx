@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   Pressable,
   ScrollView,
@@ -10,6 +9,7 @@ import {
   Platform,
   ActivityIndicator,
 } from "react-native";
+import { ThemedTextInput } from "../components/ThemedTextInput";
 import { useFocusEffect } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { synthesizeEvidence } from "../lib/geminiVision";
@@ -54,6 +54,8 @@ import {
 import type { SyncRun } from "../lib/syncCredentials";
 import { clearOcrApiKey, getOcrApiKey, setOcrApiKey } from "../lib/ocrSpace";
 import { formatDate } from "../lib/dateTimeUtils";
+import { useThemedStyles, usePalette } from "../hooks/useThemedStyles";
+import type { Palette } from "../theme";
 
 interface ApiKeySectionProps {
   title: string;
@@ -74,6 +76,7 @@ function ApiKeySection({
   saveKey,
   clearKey,
 }: ApiKeySectionProps) {
+  const styles = useThemedStyles(createStyles);
   const [key, setKey] = useState("");
   const [hasStoredKey, setHasStoredKey] = useState(false);
 
@@ -125,7 +128,7 @@ function ApiKeySection({
       <Text style={styles.status}>
         Estado: {hasStoredKey ? "✅ Configurada" : "⚠️ No configurada"}
       </Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder={placeholder}
         value={key}
@@ -163,6 +166,7 @@ function lastRunLabel(run: SyncRun | undefined): string | null {
 }
 
 function AutoSyncSection() {
+  const styles = useThemedStyles(createStyles);
   const [status, setStatus] = useState<Awaited<ReturnType<typeof getSyncStatus>> | null>(null);
   const [runs, setRuns] = useState<SyncRun[]>([]);
   const [libreEmail, setLibreEmail] = useState("");
@@ -274,7 +278,7 @@ function AutoSyncSection() {
       <Text style={styles.status}>
         Credenciales: {hasLibre ? "✅ Guardadas en el servidor" : "⚠️ No configuradas"}
       </Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Email de LibreLinkUp"
         value={libreEmail}
@@ -283,7 +287,7 @@ function AutoSyncSection() {
         autoCorrect={false}
         keyboardType="email-address"
       />
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Contraseña de LibreLinkUp"
         value={librePassword}
@@ -314,7 +318,7 @@ function AutoSyncSection() {
         Usa el Personal API Token que generás en vision.ultrahuman.com/developer. No mandes tu
         email de cuenta acá — el token ya está atado a tu cuenta.
       </Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Personal API Token de Ultrahuman"
         value={uhToken}
@@ -342,7 +346,7 @@ function AutoSyncSection() {
             onPress={onSyncNow}
             disabled={syncingNow}
           >
-            <Text style={styles.saveButtonText}>
+            <Text style={styles.synthesizeButtonText}>
               {syncingNow ? "Sincronizando..." : "Sincronizar ahora"}
             </Text>
           </Pressable>
@@ -361,6 +365,7 @@ const DIABETES_TYPE_OPTIONS: { key: DiabetesType; label: string }[] = [
 ];
 
 function PatientProfileSection() {
+  const styles = useThemedStyles(createStyles);
   const [diabetesType, setDiabetesType] = useState<DiabetesType>("type1");
   const [targetLow, setTargetLow] = useState(String(TARGET_RANGE.low));
   const [targetHigh, setTargetHigh] = useState(String(TARGET_RANGE.high));
@@ -523,14 +528,14 @@ function PatientProfileSection() {
 
       <Text style={styles.subsectionTitle}>Rango objetivo (mg/dL)</Text>
       <View style={styles.row}>
-        <TextInput
+        <ThemedTextInput
           style={[styles.input, styles.flex1]}
           placeholder="Bajo (ej. 70)"
           keyboardType="decimal-pad"
           value={targetLow}
           onChangeText={setTargetLow}
         />
-        <TextInput
+        <ThemedTextInput
           style={[styles.input, styles.flex1, styles.marginLeft]}
           placeholder="Alto (ej. 180)"
           keyboardType="decimal-pad"
@@ -540,7 +545,7 @@ function PatientProfileSection() {
       </View>
 
       <Text style={styles.subsectionTitle}>Ratio insulina:carbohidratos (g por unidad)</Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Ej. 10 (1 unidad cubre 10g de carbohidratos)"
         keyboardType="decimal-pad"
@@ -549,7 +554,7 @@ function PatientProfileSection() {
       />
 
       <Text style={styles.subsectionTitle}>Factor de sensibilidad a la insulina (mg/dL por unidad)</Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Ej. 50 (1 unidad de corrección baja 50 mg/dL)"
         keyboardType="decimal-pad"
@@ -558,7 +563,7 @@ function PatientProfileSection() {
       />
 
       <Text style={styles.subsectionTitle}>Año de diagnóstico</Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Ej. 2015"
         keyboardType="number-pad"
@@ -572,7 +577,7 @@ function PatientProfileSection() {
         para la hora de México (CST, sin horario de verano desde 2022): -6. Cambiarlo afecta a
         qué día calendario se le asignan tus métricas de sueño/HRV.
       </Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Ej. -6"
         keyboardType="numbers-and-punctuation"
@@ -590,7 +595,7 @@ function PatientProfileSection() {
 
       <Text style={[styles.subsectionTitle, { marginTop: 20 }]}>Registrar HbA1c</Text>
       <View style={styles.row}>
-        <TextInput
+        <ThemedTextInput
           style={[styles.input, styles.flex1]}
           placeholder="Valor (%, ej. 7.2)"
           keyboardType="decimal-pad"
@@ -647,6 +652,7 @@ function PatientProfileSection() {
 }
 
 function KnowledgeBaseSection() {
+  const styles = useThemedStyles(createStyles);
   const [ingestedCount, setIngestedCount] = useState(0);
   const corpusSize = getCorpusSize();
   const [syncing, setSyncing] = useState(false);
@@ -763,6 +769,7 @@ const EVIDENCE_STRENGTH_LABELS: Record<EvidenceSynthesis["evidenceStrength"], st
 };
 
 function KnowledgeSearchTestSection() {
+  const styles = useThemedStyles(createStyles);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<ActivationResult[] | null>(null);
@@ -818,7 +825,7 @@ function KnowledgeSearchTestSection() {
         noche") para ver qué evidencia encuentra la app. Si el corpus local no tiene un
         buen match, buscará en vivo en PubMed automáticamente.
       </Text>
-      <TextInput
+      <ThemedTextInput
         style={styles.input}
         placeholder="Ej. hipoglucemia nocturna después de ejercicio"
         value={query}
@@ -859,7 +866,7 @@ function KnowledgeSearchTestSection() {
           onPress={onSynthesize}
           disabled={synthesizing}
         >
-          <Text style={styles.saveButtonText}>
+          <Text style={styles.synthesizeButtonText}>
             {synthesizing ? "Revisando evidencia..." : "Generar resumen clínico"}
           </Text>
         </Pressable>
@@ -893,6 +900,8 @@ function KnowledgeSearchTestSection() {
 }
 
 function PatientPreferencesSection() {
+  const styles = useThemedStyles(createStyles);
+  const palette = usePalette();
   const { session } = useAuth();
   const [preferences, setPreferences] = useState<PatientPreferences | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1027,7 +1036,7 @@ function PatientPreferencesSection() {
       </Pressable>
 
       {saved && (
-        <Text style={{ color: "#10b981", marginTop: 10, textAlign: "center" }}>
+        <Text style={{ color: palette.success, marginTop: 10, textAlign: "center" }}>
           ✓ Preferencias guardadas
         </Text>
       )}
@@ -1036,6 +1045,7 @@ function PatientPreferencesSection() {
 }
 
 function AccountSection() {
+  const styles = useThemedStyles(createStyles);
   const { session, signOut } = useAuth();
 
   const onSignOut = () => {
@@ -1057,6 +1067,7 @@ function AccountSection() {
 }
 
 export default function SettingsScreen() {
+  const styles = useThemedStyles(createStyles);
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Ajustes</Text>
@@ -1103,192 +1114,194 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9fafb", padding: 16 },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 16, color: "#111827" },
-  section: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  sectionTitle: { fontSize: 15, fontWeight: "600", color: "#111827", marginBottom: 6 },
-  subsectionTitle: { fontSize: 13, fontWeight: "700", color: "#374151", marginBottom: 6 },
-  description: { fontSize: 13, color: "#6b7280", marginBottom: 10, lineHeight: 18 },
-  status: { fontSize: 13, color: "#374151", marginBottom: 10, fontWeight: "600" },
-  input: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    marginBottom: 12,
-  },
-  saveButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-  },
-  row: { flexDirection: "row" },
-  flex1: { flex: 1 },
-  marginLeft: { marginLeft: 8 },
-  pickerText: { fontSize: 15, color: "#111827", textAlign: "center" },
-  pickerBox: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    marginTop: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    alignItems: "center",
-    paddingBottom: 8,
-  },
-  doneButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 24,
-    marginTop: 4,
-  },
-  doneButtonText: { color: "#fff", fontWeight: "700" },
-  trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
-  trendChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  trendChipSelected: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  trendChipText: { fontSize: 13, color: "#374151" },
-  trendChipTextSelected: { color: "#fff" },
-  saveButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
-  disabled: { opacity: 0.6 },
-  clearButton: { alignItems: "center", padding: 12, marginTop: 8 },
-  clearButtonText: { color: "#dc2626", fontSize: 14, fontWeight: "600" },
-  resultCard: {
-    backgroundColor: "#f9fafb",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  resultTitle: { fontSize: 13, fontWeight: "700", color: "#111827", marginBottom: 4 },
-  resultMeta: { fontSize: 11, color: "#6b7280", marginBottom: 6 },
-  resultSummary: { fontSize: 12, color: "#374151", lineHeight: 17 },
-  synthesizeButton: {
-    backgroundColor: "#111827",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    marginTop: 14,
-  },
-  synthesisBox: {
-    backgroundColor: "#eef2ff",
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 14,
-  },
-  synthesisStrength: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#4338ca",
-    marginBottom: 8,
-  },
-  synthesisSectionTitle: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#111827",
-    marginTop: 8,
-  },
-  synthesisText: { fontSize: 13, color: "#374151", lineHeight: 18, marginTop: 2 },
-  synthesisCaveats: {
-    fontSize: 12,
-    color: "#92400e",
-    lineHeight: 17,
-    marginTop: 2,
-    fontStyle: "italic",
-  },
-  disclaimer: {
-    fontSize: 11,
-    color: "#9ca3af",
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 40,
-    fontStyle: "italic",
-    lineHeight: 16,
-  },
-  // Patient Preferences Section Styles
-  label: { fontSize: 13, fontWeight: "600", color: "#111827", marginBottom: 8 },
-  helperText: { fontSize: 12, color: "#6b7280", marginBottom: 12, fontStyle: "italic" },
-  depthSelector: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-    gap: 8,
-  },
-  depthButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    backgroundColor: "#f9fafb",
-    alignItems: "center",
-  },
-  depthButtonActive: {
-    backgroundColor: "#dbeafe",
-    borderColor: "#2563eb",
-  },
-  depthButtonText: { fontSize: 12, fontWeight: "600", color: "#6b7280" },
-  depthButtonTextActive: { color: "#2563eb" },
-  checkboxRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    marginBottom: 8,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: "#d1d5db",
-    marginRight: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxChecked: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
-  },
-  checkmark: { color: "#fff", fontWeight: "bold", fontSize: 14 },
-  checkboxLabel: { fontSize: 13, color: "#374151", flex: 1 },
-  evidenceLevelSelector: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-    gap: 8,
-  },
-  evidenceLevelButton: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    backgroundColor: "#f9fafb",
-    alignItems: "center",
-  },
-  evidenceLevelButtonActive: {
-    backgroundColor: "#dbeafe",
-    borderColor: "#2563eb",
-  },
-  evidenceLevelButtonText: { fontSize: 11, fontWeight: "600", color: "#6b7280" },
-  evidenceLevelButtonTextActive: { color: "#2563eb" },
-});
+const createStyles = (c: Palette) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bgSecondary, padding: 16 },
+    title: { fontSize: 20, fontWeight: "700", marginBottom: 16, color: c.text },
+    section: {
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 16,
+    },
+    sectionTitle: { fontSize: 15, fontWeight: "600", color: c.text, marginBottom: 6 },
+    subsectionTitle: { fontSize: 13, fontWeight: "700", color: c.textBody, marginBottom: 6 },
+    description: { fontSize: 13, color: c.textSecondary, marginBottom: 10, lineHeight: 18 },
+    status: { fontSize: 13, color: c.textBody, marginBottom: 10, fontWeight: "600" },
+    input: {
+      backgroundColor: c.bgSecondary,
+      borderRadius: 10,
+      padding: 12,
+      fontSize: 15,
+      borderWidth: 1,
+      borderColor: c.border,
+      marginBottom: 12,
+    },
+    saveButton: {
+      backgroundColor: c.accent,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+    },
+    row: { flexDirection: "row" },
+    flex1: { flex: 1 },
+    marginLeft: { marginLeft: 8 },
+    pickerText: { fontSize: 15, color: c.text, textAlign: "center" },
+    pickerBox: {
+      backgroundColor: c.surface,
+      borderRadius: 10,
+      marginTop: 8,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      paddingBottom: 8,
+    },
+    doneButton: {
+      backgroundColor: c.accent,
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 24,
+      marginTop: 4,
+    },
+    doneButtonText: { color: c.textOnAccent, fontWeight: "700" },
+    trendGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+    trendChip: {
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    trendChipSelected: { backgroundColor: c.accent, borderColor: c.accent },
+    trendChipText: { fontSize: 13, color: c.textBody },
+    trendChipTextSelected: { color: c.textOnAccent },
+    saveButtonText: { color: c.textOnAccent, fontSize: 15, fontWeight: "700" },
+    synthesizeButtonText: { color: c.onInverseSurface, fontSize: 15, fontWeight: "700" },
+    disabled: { opacity: 0.6 },
+    clearButton: { alignItems: "center", padding: 12, marginTop: 8 },
+    clearButtonText: { color: c.status.error.fg, fontSize: 14, fontWeight: "600" },
+    resultCard: {
+      backgroundColor: c.bgSecondary,
+      borderRadius: 10,
+      padding: 12,
+      marginTop: 10,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    resultTitle: { fontSize: 13, fontWeight: "700", color: c.text, marginBottom: 4 },
+    resultMeta: { fontSize: 11, color: c.textSecondary, marginBottom: 6 },
+    resultSummary: { fontSize: 12, color: c.textBody, lineHeight: 17 },
+    synthesizeButton: {
+      backgroundColor: c.inverseSurface,
+      borderRadius: 12,
+      padding: 14,
+      alignItems: "center",
+      marginTop: 14,
+    },
+    synthesisBox: {
+      backgroundColor: c.status.info.surface,
+      borderRadius: 12,
+      padding: 14,
+      marginTop: 14,
+    },
+    synthesisStrength: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: c.status.info.strong,
+      marginBottom: 8,
+    },
+    synthesisSectionTitle: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: c.text,
+      marginTop: 8,
+    },
+    synthesisText: { fontSize: 13, color: c.textBody, lineHeight: 18, marginTop: 2 },
+    synthesisCaveats: {
+      fontSize: 12,
+      color: c.status.warning.strong,
+      lineHeight: 17,
+      marginTop: 2,
+      fontStyle: "italic",
+    },
+    disclaimer: {
+      fontSize: 11,
+      color: c.textMuted,
+      textAlign: "center",
+      marginTop: 8,
+      marginBottom: 40,
+      fontStyle: "italic",
+      lineHeight: 16,
+    },
+    // Patient Preferences Section Styles
+    label: { fontSize: 13, fontWeight: "600", color: c.text, marginBottom: 8 },
+    helperText: { fontSize: 12, color: c.textSecondary, marginBottom: 12, fontStyle: "italic" },
+    depthSelector: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 12,
+      gap: 8,
+    },
+    depthButton: {
+      flex: 1,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: c.borderStrong,
+      backgroundColor: c.bgSecondary,
+      alignItems: "center",
+    },
+    depthButtonActive: {
+      backgroundColor: c.accentLight,
+      borderColor: c.accent,
+    },
+    depthButtonText: { fontSize: 12, fontWeight: "600", color: c.textSecondary },
+    depthButtonTextActive: { color: c.accent },
+    checkboxRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 8,
+      marginBottom: 8,
+    },
+    checkbox: {
+      width: 20,
+      height: 20,
+      borderRadius: 4,
+      borderWidth: 2,
+      borderColor: c.borderStrong,
+      marginRight: 12,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    checkboxChecked: {
+      backgroundColor: c.accent,
+      borderColor: c.accent,
+    },
+    checkmark: { color: c.textOnAccent, fontWeight: "bold", fontSize: 14 },
+    checkboxLabel: { fontSize: 13, color: c.textBody, flex: 1 },
+    evidenceLevelSelector: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 12,
+      gap: 8,
+    },
+    evidenceLevelButton: {
+      flex: 1,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: c.borderStrong,
+      backgroundColor: c.bgSecondary,
+      alignItems: "center",
+    },
+    evidenceLevelButtonActive: {
+      backgroundColor: c.accentLight,
+      borderColor: c.accent,
+    },
+    evidenceLevelButtonText: { fontSize: 11, fontWeight: "600", color: c.textSecondary },
+    evidenceLevelButtonTextActive: { color: c.accent },
+  });
