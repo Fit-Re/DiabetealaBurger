@@ -1,32 +1,31 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react-native';
-import ErrorBoundary from '../ErrorBoundary';
+import { Text } from 'react-native';
+import { render, screen, fireEvent } from '@testing-library/react-native';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 describe('ErrorBoundary', () => {
-  // Mock console methods to avoid test noise
+  // componentDidCatch registra en console.error; se silencia para no ensuciar la salida.
   beforeEach(() => {
-    jest.spyOn(console, 'error').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     (console.error as jest.Mock).mockRestore();
   });
 
-  it('should render children when no error occurs', () => {
-    const TestComponent = () => <></>;
-
+  it('renderiza los hijos cuando no hay error', () => {
     render(
       <ErrorBoundary>
-        <TestComponent />
+        <Text>contenido ok</Text>
       </ErrorBoundary>
     );
 
-    // Should not show error UI
-    expect(screen.queryByText(/Error/i)).not.toBeInTheDocument();
+    expect(screen.getByText('contenido ok')).toBeOnTheScreen();
+    expect(screen.queryByText('Algo salió mal')).not.toBeOnTheScreen();
   });
 
-  it('should catch and display render errors', () => {
-    const ThrowError = () => {
+  it('muestra la UI de respaldo cuando un hijo lanza al renderizar', () => {
+    const ThrowError = (): React.ReactElement => {
       throw new Error('Test error message');
     };
 
@@ -36,109 +35,93 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
 
-    // Should display error message
-    expect(screen.queryByText(/error|Error/i)).toBeInTheDocument();
+    expect(screen.getByText('Algo salió mal')).toBeOnTheScreen();
+    expect(
+      screen.getByText('La aplicación encontró un error inesperado. Intenta nuevamente.')
+    ).toBeOnTheScreen();
   });
 
-  it('should display error message and stack trace', () => {
-    const errorMessage = 'Specific error occurred';
-    const ThrowError = () => {
-      throw new Error(errorMessage);
+  it('muestra el mensaje del error capturado', () => {
+    const ThrowError = (): React.ReactElement => {
+      throw new Error('Specific error occurred');
     };
 
-    const { container } = render(
+    render(
       <ErrorBoundary>
         <ThrowError />
       </ErrorBoundary>
     );
 
-    // Error should be captured
-    expect(container.textContent).toContain('Error');
+    expect(screen.getByText('Error:')).toBeOnTheScreen();
+    expect(screen.getByText(/Specific error occurred/)).toBeOnTheScreen();
   });
 
-  it('should provide retry functionality', () => {
-    const ThrowError = () => {
+  it('ofrece un botón de reintento', () => {
+    const ThrowError = (): React.ReactElement => {
       throw new Error('Test error');
     };
 
-    const { container } = render(
+    render(
       <ErrorBoundary>
         <ThrowError />
       </ErrorBoundary>
     );
 
-    // Should have a retry button
-    const retryButton = screen.queryByText(/retry|Retry/i);
-    expect(retryButton).toBeInTheDocument();
+    expect(screen.getByText('Intentar de Nuevo')).toBeOnTheScreen();
   });
 
-  it('should reset error state on retry', () => {
+  it('limpia el estado de error al pulsar reintentar', () => {
     let shouldThrow = true;
 
-    const ConditionalError = () => {
+    const ConditionalError = (): React.ReactElement => {
       if (shouldThrow) {
         throw new Error('Test error');
       }
-      return <></>;
+      return <Text>contenido recuperado</Text>;
     };
 
-    const { rerender } = render(
+    render(
       <ErrorBoundary>
         <ConditionalError />
       </ErrorBoundary>
     );
 
-    // Error should be displayed
-    expect(screen.queryByText(/error/i)).toBeInTheDocument();
+    expect(screen.getByText('Algo salió mal')).toBeOnTheScreen();
 
-    // Update condition to not throw
+    // La causa del error desaparece antes de reintentar.
     shouldThrow = false;
+    fireEvent.press(screen.getByText('Intentar de Nuevo'));
 
-    // Retry would rerender with the updated condition
-    rerender(
-      <ErrorBoundary>
-        <ConditionalError />
-      </ErrorBoundary>
-    );
-
-    // Error should be cleared
-    expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Algo salió mal')).not.toBeOnTheScreen();
+    expect(screen.getByText('contenido recuperado')).toBeOnTheScreen();
   });
 
-  it('should handle multiple consecutive errors', () => {
-    const ThrowError = () => {
-      throw new Error('First error');
+  it('sigue mostrando la UI de respaldo si el error persiste tras reintentar', () => {
+    const ThrowError = (): React.ReactElement => {
+      throw new Error('Error persistente');
     };
 
-    const { rerender } = render(
+    render(
       <ErrorBoundary>
         <ThrowError />
       </ErrorBoundary>
     );
 
-    expect(screen.queryByText(/error/i)).toBeInTheDocument();
+    expect(screen.getByText('Algo salió mal')).toBeOnTheScreen();
 
-    // Simulate another error
-    const AnotherError = () => {
-      throw new Error('Second error');
-    };
+    fireEvent.press(screen.getByText('Intentar de Nuevo'));
 
-    rerender(
-      <ErrorBoundary>
-        <AnotherError />
-      </ErrorBoundary>
-    );
-
-    // Should display error
-    expect(screen.queryByText(/error/i)).toBeInTheDocument();
+    expect(screen.getByText('Algo salió mal')).toBeOnTheScreen();
   });
 
-  it('should not catch non-render errors', () => {
-    const AsyncError = () => {
+  it('no captura errores lanzados fuera del render', () => {
+    jest.useFakeTimers();
+
+    const AsyncError = (): React.ReactElement => {
       setTimeout(() => {
         throw new Error('Async error');
       }, 0);
-      return <></>;
+      return <Text>contenido ok</Text>;
     };
 
     render(
@@ -147,18 +130,20 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>
     );
 
-    // Async errors are not caught by error boundary
-    expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+    // El temporizador no se ejecuta: un error asíncrono no lo captura un error boundary.
+    expect(screen.getByText('contenido ok')).toBeOnTheScreen();
+    expect(screen.queryByText('Algo salió mal')).not.toBeOnTheScreen();
+
+    jest.useRealTimers();
   });
 
-  it('should handle null error gracefully', () => {
-    const { container } = render(
+  it('renderiza sin fallar cuando no hay hijos con contenido', () => {
+    render(
       <ErrorBoundary>
         <></>
       </ErrorBoundary>
     );
 
-    // Should render without crashing
-    expect(container).toBeTruthy();
+    expect(screen.queryByText('Algo salió mal')).not.toBeOnTheScreen();
   });
 });
