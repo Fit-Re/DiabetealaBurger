@@ -7,6 +7,7 @@ import {
   getCacheKeyReadingsSince,
 } from "../lib/queryCache";
 import type {
+  AdherenceLog,
   DiabetesType,
   GlucoseReading,
   Hba1cReading,
@@ -19,6 +20,7 @@ import type {
   Medication,
   MedicationLog,
   MedicationType,
+  NewAdherenceLog,
   NewGlucoseReading,
   NewHba1cReading,
   NewLifestyleMetric,
@@ -570,6 +572,49 @@ export async function getLifestyleMetricsSince(
     raw: row.raw,
     createdAtMs: row.created_at_ms,
   }));
+}
+
+interface AdherenceLogRow {
+  id: number;
+  date_key: string;
+  date_ms: number;
+  status: AdherenceLog["status"];
+  mood: AdherenceLog["mood"];
+  notes: string | null;
+  created_at_ms: number;
+}
+
+export async function getAdherenceLogsSince(
+  sinceMs: number
+): Promise<AdherenceLog[]> {
+  const result = await supabase
+    .from("adherence_log")
+    .select("*")
+    .gte("date_ms", sinceMs)
+    .order("date_ms", { ascending: false });
+  return unwrap<AdherenceLogRow[]>(result).map((row) => ({
+    id: row.id,
+    dateKey: row.date_key,
+    dateMs: row.date_ms,
+    status: row.status,
+    mood: row.mood,
+    notes: row.notes,
+    createdAtMs: row.created_at_ms,
+  }));
+}
+
+export async function upsertAdherenceLog(log: NewAdherenceLog): Promise<void> {
+  const { error } = await supabase.from("adherence_log").upsert(
+    {
+      date_key: log.dateKey,
+      date_ms: log.dateMs,
+      status: log.status,
+      mood: log.mood,
+      notes: log.notes,
+    },
+    { onConflict: "patient_id,date_key" }
+  );
+  if (error) throw new Error(error.message);
 }
 
 interface PatientProfileRow {

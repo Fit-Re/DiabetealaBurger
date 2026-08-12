@@ -5,9 +5,9 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import HomeScreen from "./src/screens/HomeScreen";
-import GlucoseScreen from "./src/screens/GlucoseScreen";
-import MedicationsScreen from "./src/screens/MedicationsScreen";
-import MealsScreen from "./src/screens/MealsScreen";
+import RegistrarScreen from "./src/screens/RegistrarScreen";
+import TrendsScreen from "./src/screens/TrendsScreen";
+import EvidenceScreen from "./src/screens/EvidenceScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import LoginScreen from "./src/screens/LoginScreen";
 import { AuthProvider, useAuth } from "./src/lib/auth";
@@ -25,19 +25,19 @@ function MainTabs() {
           options={{ title: "GlucoTrack" }}
         />
         <Tab.Screen
-          name="Glucosa"
-          component={GlucoseScreen}
-          options={{ title: "Registrar glucosa" }}
+          name="Registrar"
+          component={RegistrarScreen}
+          options={{ title: "Registrar" }}
         />
         <Tab.Screen
-          name="Medicamentos"
-          component={MedicationsScreen}
-          options={{ title: "Medicamentos" }}
+          name="Tendencias"
+          component={TrendsScreen}
+          options={{ title: "Tendencias" }}
         />
         <Tab.Screen
-          name="Comida"
-          component={MealsScreen}
-          options={{ title: "Comida" }}
+          name="Evidencia"
+          component={EvidenceScreen}
+          options={{ title: "Evidencia científica" }}
         />
         <Tab.Screen name="Ajustes" component={SettingsScreen} />
       </Tab.Navigator>
