@@ -617,14 +617,6 @@ export async function upsertAdherenceLog(log: NewAdherenceLog): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-export async function deleteAdherenceLog(dateKey: string): Promise<void> {
-  const { error } = await supabase
-    .from("adherence_log")
-    .delete()
-    .eq("date_key", dateKey);
-  if (error) throw new Error(error.message);
-}
-
 interface PatientProfileRow {
   patient_id: string;
   diabetes_type: DiabetesType;
